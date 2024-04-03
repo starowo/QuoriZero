@@ -11,7 +11,8 @@ use websocket::sync::Server;
 use websocket::OwnedMessage;
 
 fn main() {
-    let server = Server::bind("127.0.0.1:8080").unwrap();
+    train::train(None);
+    /*let server = Server::bind("127.0.0.1:8080").unwrap();
 
     for request in server.filter_map(Result::ok) {
         // Spawn a new thread for each connection
@@ -80,5 +81,5 @@ fn main() {
                 }
             }
         });
-    }
+    }*/
 }
