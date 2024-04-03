@@ -1,22 +1,14 @@
-use ndarray::{prelude::*, IxDynImpl};
-use ndarray::{Array3, ArrayView3, ArrayViewMut3, Axis};
-use pyo3::types::PyModule;
-use pyo3::Python;
-use rand::distributions::WeightedIndex;
-use rand::prelude::Distribution;
-use rand::seq::index::sample;
+use ndarray::prelude::*;
+use ndarray::Array3;
 use rand::seq::SliceRandom;
 use rand::Rng;
-use std::cmp::max;
-use std::collections::{HashSet, VecDeque};
-use std::hash::Hash;
+use std::collections::HashSet;
 use std::io;
 use std::io::Write;
-use std::ops::Add;
-use std::sync::atomic::{AtomicI16, AtomicI32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{mpsc, RwLock};
-use std::time::Duration;
+
 use std::{sync::Arc, thread};
 use tch::{Device, Tensor};
 use websocket::OwnedMessage;
@@ -742,7 +734,6 @@ fn evaluate_with_pure_mcts_parallel(
     n_playout_pure: usize,
     tx: Option<mpsc::Sender<OwnedMessage>>,
 ) -> f32 {
-    pyo3::prepare_freethreaded_python();
     let a = Arc::new(AtomicI32::new(0));
     let mut threads = vec![];
     //let time = std::time::SystemTime::now();

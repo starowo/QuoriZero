@@ -1,6 +1,6 @@
-use std::{collections::HashMap};
+use std::collections::HashMap;
 
-use ndarray::{s, Array, Array3};
+use ndarray::{Array, Array3};
 
 
 
@@ -22,7 +22,7 @@ impl Board {
     pub fn new(
         tx: Option<std::sync::mpsc::Sender<websocket::OwnedMessage>>,
     ) -> Board {
-        let mut state = [[0; 17]; 17];
+        let state = [[0; 17]; 17];
         let tiles = [4*9, 4*9+8];
         let walls = [10, 10];
         Board {

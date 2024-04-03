@@ -2,9 +2,7 @@ use ndarray::prelude::*;
 use rand::distributions::{Dirichlet, WeightedIndex};
 use rand::prelude::*;
 use std::collections::HashMap;
-use std::f32::consts::E;
-use std::fmt::Debug;
-use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock, Weak};
 use std::time::Duration;
 use uuid::Uuid;
@@ -21,7 +19,6 @@ const C_LOSS: f32 = 3.;
 #[derive(Clone)]
 struct TreeNode {
     id: Uuid,
-    id_debug: String,
     parent: Option<Weak<RwLock<TreeNode>>>,
     children: HashMap<i32, Arc<RwLock<TreeNode>>>,
     n_visits: i32,
@@ -35,10 +32,8 @@ struct TreeNode {
 impl TreeNode {
     fn new(parent: Option<Weak<RwLock<TreeNode>>>, prior_p: f32, ally: bool) -> TreeNode {
         let id = Uuid::new_v4();
-        let id_debug = id.to_string();
         TreeNode {
             id,
-            id_debug,
             parent,
             children: HashMap::new(),
             n_visits: 0,
@@ -64,15 +59,6 @@ impl TreeNode {
                 return None;
             }
         }
-    }
-
-    fn update(&mut self, leaf_value: f32) {
-        self.q = self.q * self.n_visits as f32 + leaf_value + 3.0;
-        //println!("{} -2, {}", self.id, std::thread::current().name().unwrap());
-        self.n_visits -= 2;
-        self.q = self.q / self.n_visits as f32;
-        //self.n_visits += 1;
-        //self.q += 1.0 * (leaf_value - self.q) / self.n_visits as f32;
     }
 
     fn get_value(&self, u: f32) -> f32 {
@@ -622,7 +608,7 @@ impl MCTSPlayer {
         // the pi vector returned by MCTS as in the alphaGo Zero paper
         let mut move_probs = vec![0.0; 132];
         if !sensible_moves.is_empty() {
-            let (mut acts, mut probs, mut origin_probs) = self.mcts.get_move_probs(board, temp, self.is_selfplay, thread);
+            let (acts, probs, origin_probs) = self.mcts.get_move_probs(board, temp, self.is_selfplay, thread);
             /*if !self.is_selfplay && self.mcts.n_playout >= 1000 {
                 loop {
                     let mut input_1 = String::new();

@@ -36,7 +36,7 @@ fn main() {
                 }
             });
 
-            let mut id = 0;
+            let id = 0;
 
             let mut tx_map = HashMap::new();
 
