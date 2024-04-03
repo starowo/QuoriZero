@@ -94,7 +94,7 @@ impl TrainPipeline {
             data_buffer: Vec::new(),
             kl_targ: 0.0005,
             lr: 0.002,
-            lr_multiplier: 1.0 * 1.5 ,
+            lr_multiplier: 1.0,
             evaluate_playout: 3000,
             win_rate: 0.8,
         }
@@ -259,7 +259,7 @@ impl TrainPipeline {
                 //self.lr_multiplier = self.lr_multiplier.max(0.05);
                 //println!("kl {}", kl)\
                 let batchtensor =
-                    Tensor::of_slice(win.clone().as_slice()).to_device(Device::Cuda(0));
+                    Tensor::from_slice(win.clone().as_slice()).to_device(Device::Cuda(0));
                 let batchvar: f32 = batchtensor.var(true).into();
                 let oldvar: f32 = batchtensor
                     .subtract(&oldv.reshape(&[BATCH_SIZE.try_into().unwrap()]))
@@ -281,7 +281,7 @@ impl TrainPipeline {
     }
 
     fn train(&mut self) {
-        let mut batch: usize = 571;
+        let mut batch: usize = 740;
         loop {
             batch += 1;
             //let len = self.collect_data(3, max(10, batch / 10), batch);
@@ -926,7 +926,7 @@ fn start_self_play(
     let mut board = Board::new(tx);
     let mut i: f32 = 0.0;
     board.init(rand::thread_rng().gen_range::<u16, u16, u16>(1, 3));
-    let mut player = MCTSPlayer::new(net.clone(), c_puct, n_playout, true, 2);
+    let mut player = MCTSPlayer::new(net.clone(), c_puct, n_playout, true, 1);
     let (mut states, mut mcts_probs, mut current_players): (
         Vec<Array3<f32>>,
         Vec<Vec<f32>>,

@@ -11,7 +11,7 @@ ndarray = "0.15.3"
 #numpy = "0.18"
 #cpython = "0.7"
 rand ="0.6.5"
-tch = "0.11.0"
+tch = "0.15.0"
 websocket = "0.24"
 
 [dependencies.uuid]
