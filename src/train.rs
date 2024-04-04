@@ -853,7 +853,7 @@ fn start_self_play(
     let mut board = Board::new();
     let mut i: f32 = 0.0;
     board.init(rand::thread_rng().gen_range::<u16, u16, u16>(1, 3));
-    let mut player = MCTSPlayer::new(net.clone(), c_puct, n_playout, true, 1);
+    let mut player = MCTSPlayer::new(net.clone(), c_puct, n_playout, true, 2);
     let (mut states, mut mcts_probs, mut current_players): (
         Vec<Array3<f32>>,
         Vec<Vec<f32>>,
