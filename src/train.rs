@@ -258,7 +258,7 @@ impl TrainPipeline {
     }
 
     fn train(&mut self) {
-        let mut batch: usize = 800;
+        let mut batch: usize = 820;
         loop {
             batch += 1;
             //let len = self.collect_data(3, max(10, batch / 10), batch);
