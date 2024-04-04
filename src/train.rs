@@ -8,7 +8,7 @@ use std::io::Write;
 use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{mpsc, RwLock};
-
+use std::time::Duration;
 use std::{sync::Arc, thread};
 use tch::{Device, Tensor};
 use websocket::OwnedMessage;
@@ -94,7 +94,7 @@ impl TrainPipeline {
             data_buffer: Vec::new(),
             kl_targ: 0.0005,
             lr: 0.002,
-            lr_multiplier: 1.0,
+            lr_multiplier: 1.0 ,
             evaluate_playout: 3000,
             win_rate: 0.8,
         }
@@ -259,7 +259,7 @@ impl TrainPipeline {
                 //self.lr_multiplier = self.lr_multiplier.max(0.05);
                 //println!("kl {}", kl)\
                 let batchtensor =
-                    Tensor::from_slice(win.clone().as_slice()).to_device(Device::Cuda(0));
+                    Tensor::of_slice(win.clone().as_slice()).to_device(Device::Cuda(0));
                 let batchvar: f32 = batchtensor.var(true).into();
                 let oldvar: f32 = batchtensor
                     .subtract(&oldv.reshape(&[BATCH_SIZE.try_into().unwrap()]))
@@ -281,7 +281,7 @@ impl TrainPipeline {
     }
 
     fn train(&mut self) {
-        let mut batch: usize = 740;
+        let mut batch: usize = 571;
         loop {
             batch += 1;
             //let len = self.collect_data(3, max(10, batch / 10), batch);
