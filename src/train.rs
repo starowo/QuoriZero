@@ -694,7 +694,7 @@ fn weight_comparation(
                                 best.mcts.update_with_move(move_, false);
                             }
                             let (mut end, mut winner) = board.game_end();
-                            if turn >= 60 && !end {
+                            if turn >= 150 && !end {
                                 end = true;
                                 winner = -1;
                             }
