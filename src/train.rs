@@ -34,8 +34,8 @@ pub fn play(tx: Option<Sender<OwnedMessage>>, rx: Receiver<usize>) {
         humanplay(
             net::Net::new(Some("latest.model")),
             1e-4,
-            1.5,
-            800,
+            4.0,
+            3000,
             true,
             2,
             2,
