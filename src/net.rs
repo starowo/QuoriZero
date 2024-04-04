@@ -188,7 +188,7 @@ impl Net {
             tch::Reduction::Mean,
         );
         let p_loss = Net::cross_entropy(&p_tensor.to_kind(Kind::Float).reshape(&[1, 132]), &Tensor::from_slice(prob.as_slice()).to_device(Device::Cuda(0)).reshape(&[1, 132]));
-        (p_loss.into(), v_loss.into())
+        (p_loss.try_into().unwrap(), v_loss.try_into().unwrap())
         /*let rot = rand::thread_rng().gen_range(0, 4);
         tensor = tensor.rot90(rot, &[2, 3]);
         let flip = rand::thread_rng().gen_bool(0.5);
@@ -241,7 +241,7 @@ impl Net {
         let (mut p_tensor, v_tensor) = self.net.forward_t(&tensor, train);
         //p_tensor = rot90_action(p_tensor, 0, flip);
         //p_tensor = p_tensor.reshape(&[81]);
-        let (p, v): (&Vec<f32>, f32) = (&p_tensor.exp().into(), v_tensor.into());
+        let (p, v): (&Vec<f32>, f32) = (&p_tensor.exp().try_into().unwrap(), v_tensor.try_into().unwrap());
         //Array2::from(p);
         let mut probs = vec![];
         for i in 0..132 {
@@ -318,8 +318,8 @@ impl NetTrain {
         );
         let total = value_loss.add(&policy_loss);
         total.backward();
-        let vloss: f32 = total.into();
-        let ploss: f32 = policy_loss.into();
+        let vloss: f32 = total.try_into().unwrap();
+        let ploss: f32 = policy_loss.try_into().unwrap();
         let vloss = vloss - ploss;
         self.optimizer.step();
         (ploss, vloss)
