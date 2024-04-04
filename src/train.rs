@@ -99,7 +99,7 @@ impl TrainPipeline {
         println!("generating data");
         let datas = Arc::new(RwLock::new(vec![]));
         let played = Arc::new(AtomicUsize::new(0));
-        for i in 0..2 {
+        for i in 0..4 {
             let datas = datas.clone();
             let net = if i == 0  {self.net.net.clone()} else {net::NetTrain::new(Some("latest.model")).net.clone()};
             let games = games;
