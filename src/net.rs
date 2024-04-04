@@ -178,7 +178,7 @@ impl Net {
     }
 
     pub fn policy_value_loss(&self, state: Vec<f32>, prob: Vec<f32>, win: f32) -> (f32, f32) {
-        let tensor = tch::Tensor::of_slice(state.as_slice())
+        let tensor = tch::Tensor::from_slice(state.as_slice())
             .to_device(Device::Cuda(0))
             .reshape(&[1, 8, 17, 17]);
         let (p_tensor, v_tensor) = self.net.forward_t(&tensor, false);
@@ -187,8 +187,8 @@ impl Net {
                 .to_device(Device::Cuda(0)),
             tch::Reduction::Mean,
         );
-        let p_loss = Net::cross_entropy(&p_tensor.to_kind(Kind::Float).reshape(&[1, 132]), &Tensor::of_slice(prob.as_slice()).to_device(Device::Cuda(0)).reshape(&[1, 132]));
-        (p_loss.into(), v_loss.into())
+        let p_loss = Net::cross_entropy(&p_tensor.to_kind(Kind::Float).reshape(&[1, 132]), &Tensor::from_slice(prob.as_slice()).to_device(Device::Cuda(0)).reshape(&[1, 132]));
+        (p_loss.try_into().unwrap(), v_loss.try_into().unwrap())
         /*let rot = rand::thread_rng().gen_range(0, 4);
         tensor = tensor.rot90(rot, &[2, 3]);
         let flip = rand::thread_rng().gen_bool(0.5);
@@ -228,7 +228,7 @@ impl Net {
         state: Array3<f32>,
         train: bool,
     ) -> (Vec<(i32, f32)>, f32) {
-        let mut tensor = tch::Tensor::of_slice(state.as_slice().unwrap())
+        let mut tensor = tch::Tensor::from_slice(state.as_slice().unwrap())
             .reshape(&[1, 8, 17, 17])
             .to_device(Device::Cuda(0));
         //let flip = rand::thread_rng().gen_bool(0.5);
@@ -241,7 +241,7 @@ impl Net {
         let (mut p_tensor, v_tensor) = self.net.forward_t(&tensor, train);
         //p_tensor = rot90_action(p_tensor, 0, flip);
         //p_tensor = p_tensor.reshape(&[81]);
-        let (p, v): (&Vec<f32>, f32) = (&p_tensor.exp().into(), v_tensor.into());
+        let (p, v): (&Vec<f32>, f32) = (&p_tensor.exp().try_into().unwrap(), v_tensor.try_into().unwrap());
         //Array2::from(p);
         let mut probs = vec![];
         for i in 0..132 {
@@ -266,7 +266,7 @@ fn rot90_action(tensor: Tensor, rot: i64, flip: bool) -> Tensor {
     // in each row, 0 is up, 1 is up-right, 2 is right, etc.
     // so flip is exchange 0 and 4, 1 and 3, 7 and 5
     if flip {
-        tensor = tensor.index_select(1, &Tensor::of_slice(&[4, 3, 2, 1, 0, 7, 6, 5]).to_kind(Kind::Int64).to_device(Device::Cuda(0)));
+        tensor = tensor.index_select(1, &Tensor::from_slice(&[4, 3, 2, 1, 0, 7, 6, 5]).to_kind(Kind::Int64).to_device(Device::Cuda(0)));
     }
     // rot90 is actually shift 2 positions to the right
     tensor = tensor.roll(&[2 * rot], &[1]);
@@ -298,13 +298,13 @@ impl NetTrain {
     ) -> (f32, f32) {
         self.optimizer.set_lr(lr);
         self.optimizer.zero_grad();
-        let state_tensor = Tensor::of_slice(state_batch.as_slice())
+        let state_tensor = Tensor::from_slice(state_batch.as_slice())
             .reshape(&[BATCH_SIZE.try_into().unwrap(), 8, 17, 17])
             .to_device(Device::Cuda(0));
         let (p, v) = self.net.write().unwrap().net.forward_t(&state_tensor, true);
         let value_loss = v
             .mse_loss(
-                &Tensor::of_slice(winner_batch.as_slice())
+                &Tensor::from_slice(winner_batch.as_slice())
                     .reshape(&[BATCH_SIZE.try_into().unwrap(), 1])
                     .to_device(Device::Cuda(0)),
                 tch::Reduction::Mean,
@@ -312,14 +312,14 @@ impl NetTrain {
             //.multiply(&Tensor::from(3.));
         let policy_loss = Net::cross_entropy(
             &p.totype(Kind::Float),
-            &Tensor::of_slice(place_probs.as_slice())
+            &Tensor::from_slice(place_probs.as_slice())
                 .reshape(&[BATCH_SIZE.try_into().unwrap(), 132])
                 .to_device(Device::Cuda(0)),
         );
         let total = value_loss.add(&policy_loss);
         total.backward();
-        let vloss: f32 = total.into();
-        let ploss: f32 = policy_loss.into();
+        let vloss: f32 = total.try_into().unwrap();
+        let ploss: f32 = policy_loss.try_into().unwrap();
         let vloss = vloss - ploss;
         self.optimizer.step();
         (ploss, vloss)
@@ -329,7 +329,7 @@ impl NetTrain {
         state_batch: Vec<f32>,
         place_probs: Vec<f32>,
         winner_batch: Vec<f32>,) -> (Tensor, Tensor) {
-            let state_tensor = Tensor::of_slice(state_batch.as_slice())
+            let state_tensor = Tensor::from_slice(state_batch.as_slice())
                 .reshape(&[BATCH_SIZE.try_into().unwrap(), 8, 17, 17])
                 .to_device(Device::Cuda(0));
             let (p, v) = self.net.read().unwrap().net.forward_t(&state_tensor, false);

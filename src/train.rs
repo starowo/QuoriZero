@@ -239,7 +239,7 @@ impl TrainPipeline {
                     .multiply(&logdiff)
                     .sum_dim_intlist(x, false, tch::Kind::Float)
                     .mean(tch::Kind::Float)
-                    .into();
+                    .try_into().unwrap();
                 if kl > self.kl_targ * 4. {
                     //early stopping if D_KL diverges badly
                     self.lr_multiplier /= 1.5;
@@ -259,16 +259,16 @@ impl TrainPipeline {
                 //self.lr_multiplier = self.lr_multiplier.max(0.05);
                 //println!("kl {}", kl)\
                 let batchtensor =
-                    Tensor::of_slice(win.clone().as_slice()).to_device(Device::Cuda(0));
-                let batchvar: f32 = batchtensor.var(true).into();
+                    Tensor::from_slice(win.clone().as_slice()).to_device(Device::Cuda(0));
+                let batchvar: f32 = batchtensor.var(true).try_into().unwrap();
                 let oldvar: f32 = batchtensor
                     .subtract(&oldv.reshape(&[BATCH_SIZE.try_into().unwrap()]))
                     .var(true)
-                    .into();
+                    .try_into().unwrap();
                 let newvar: f32 = batchtensor
                     .subtract(&newv.reshape(&[BATCH_SIZE.try_into().unwrap()]))
                     .var(true)
-                    .into();
+                    .try_into().unwrap();
                 let value_variance_old: f32 = 1.0 - oldvar / batchvar;
                 let value_variance_new: f32 = 1.0 - newvar / batchvar;
                 kl_t += kl;

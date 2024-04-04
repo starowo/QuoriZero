@@ -292,7 +292,7 @@ fn playout(
         if winner == -1 {
             leaf_value = 0.0;
         } else {
-            leaf_value = if winner == state.current_player().try_into().unwrap() {1.0} else {-1.0};
+            leaf_value = if winner == state.current_player() as i8 {1.0} else {-1.0};
         }
     }
     update_recursive(node.clone(), -leaf_value);
