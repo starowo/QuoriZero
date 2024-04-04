@@ -7,11 +7,9 @@ pub mod mcts_a0;
 use std::collections::HashMap;
 use std::thread;
 use std::sync::mpsc;
-use websocket::sync::Server;
-use websocket::OwnedMessage;
 
 fn main() {
-    train::train(None);
+    train::train();
     /*let server = Server::bind("127.0.0.1:8080").unwrap();
 
     for request in server.filter_map(Result::ok) {
