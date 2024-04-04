@@ -241,7 +241,7 @@ impl Net {
         let (mut p_tensor, v_tensor) = self.net.forward_t(&tensor, train);
         //p_tensor = rot90_action(p_tensor, 0, flip);
         //p_tensor = p_tensor.reshape(&[81]);
-        let (p, v): (&Vec<f32>, f32) = (&p_tensor.exp().try_into().unwrap(), v_tensor.try_into().unwrap());
+        let (p, v): (&Vec<f32>, f32) = (&p_tensor.exp().view([132]).try_into().unwrap(), v_tensor.try_into().unwrap());
         //Array2::from(p);
         let mut probs = vec![];
         for i in 0..132 {
