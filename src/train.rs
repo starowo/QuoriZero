@@ -75,7 +75,7 @@ impl TrainPipeline {
             data_buffer: Vec::new(),
             kl_targ: 0.0005,
             lr: 0.002,
-            lr_multiplier: 1.0 ,
+            lr_multiplier: 1.0 / 1.5,
             evaluate_playout: 3000,
             win_rate: 0.8,
         }
