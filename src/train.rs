@@ -52,7 +52,7 @@ const BUFFER_SIZE: usize = 10000;
 
 const SELFPLAY_PLAYOUT: usize = 800;
 const SELFPLAY_TEMP: f32 = 1.0;
-const SELFPLAY_CPUCT: f32 = 2.0;
+const SELFPLAY_CPUCT: f32 = 4.0;
 
 struct TrainPipeline {
     net: net::NetTrain,
@@ -99,7 +99,7 @@ impl TrainPipeline {
         println!("generating data");
         let datas = Arc::new(RwLock::new(vec![]));
         let played = Arc::new(AtomicUsize::new(0));
-        for i in 0..4 {
+        for i in 0..8 {
             let datas = datas.clone();
             let net = if i == 0  {self.net.net.clone()} else {net::NetTrain::new(Some("latest.model")).net.clone()};
             let games = games;
@@ -258,11 +258,11 @@ impl TrainPipeline {
     }
 
     fn train(&mut self) {
-        let mut batch: usize = 792;
+        let mut batch: usize = 800;
         loop {
             batch += 1;
             //let len = self.collect_data(3, max(10, batch / 10), batch);
-            let len = self.collect_data(4, 99999, batch);
+            let len = self.collect_data(8, 99999, batch);
             println!(
                 "batch {}, episode_len:{}, buffer_len:{}",
                 batch,
@@ -278,7 +278,7 @@ impl TrainPipeline {
             if batch % 50 == 0 {
                 {
                     let wr =
-                        weight_comparation(self.net.net.clone(), 1e-4, 4.0, 800);
+                        weight_comparation(self.net.net.clone(), 1e-4, 4.0, 3000);
                     println!("winrate: {:.3}", wr);
                     if wr > 0.55 {
                         println!("new best!");
@@ -595,8 +595,8 @@ fn weight_comparation(
                     let b = best.clone();
                     board.init(i % 2 + 1);
                     if true {
-                        let mut player = MCTSPlayer::new(n, c_puct, n_playout_a0, false, 1);
-                        let mut best = MCTSPlayer::new(b, c_puct, n_playout_a0, false, 1);
+                        let mut player = MCTSPlayer::new(n, c_puct, n_playout_a0, false, 4);
+                        let mut best = MCTSPlayer::new(b, c_puct, n_playout_a0, false, 4);
                         let mut turn = 0;
                         loop {
                             let current = board.current_player();
