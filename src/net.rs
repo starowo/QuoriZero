@@ -159,7 +159,7 @@ impl Net {
         let resnet = resnet1(&vs.root());
         match path {
             Some(p) => {
-                println!("loaded {}", p);
+                //println!("loaded {}", p);
                 vs.load(p)
             }
             None => Ok(()),
