@@ -123,24 +123,37 @@ impl TrainPipeline {
     }
 
     fn collect_data(&mut self, games: usize, max_length: usize, batch: usize) -> usize {
+        const RUN_THREADS: usize = 2;
         let mut threads = vec![];
         let len = Arc::new(AtomicUsize::new(0));
-        println!("generating data");
         let datas = Arc::new(RwLock::new(vec![]));
         let played = Arc::new(AtomicUsize::new(0));
-        for i in 0..2 {
+        let progess: Vec<Arc<AtomicUsize>> = (0..games)
+            .map(|_| Arc::new(AtomicUsize::new(0)))
+            .collect();
+        for i in 0..RUN_THREADS {
             let datas = datas.clone();
-            let net = if i == 0  {self.net.net.clone()} else {net::NetTrain::new(Some("latest.model")).net.clone()};
+            let net = if i == 0  {self.net.net.clone()} else {net::NetTrain::new(if std::path::Path::new("latest.model").exists() {
+                Some("latest.model")
+            } else {
+                None
+            }).net.clone()};
             let games = games;
             let played = played.clone();
             let len = len.clone();
             let tx = self.tx.clone();
+            let progress = progess.clone();
             let t = std::thread::Builder::new()
                 .name(format!("selfplay {}", i))
                 .spawn(move || {
-                    while played.load(Ordering::SeqCst) < games {
+                    loop {
+                        let played_games = played.load(Ordering::SeqCst);
+                        if played_games >= games {
+                            break;
+                        }
                         played.fetch_add(1, Ordering::SeqCst);
                         let (_, data) = start_self_play(
+                            progress[played_games].clone(),
                             net.clone(),
                             SELFPLAY_TEMP,
                             SELFPLAY_CPUCT,
@@ -161,15 +174,23 @@ impl TrainPipeline {
                         let equi_data = get_equi_data(dva);
                         //send_data(equi_data.clone(), tx.clone().unwrap());
                         datas.write().unwrap().extend(equi_data);
-                        print!("-");
-                        io::stdout().flush().unwrap()
                     }
                 })
                 .unwrap();
             threads.push(t);
         }
-        for t in threads {
-            t.join().unwrap();
+        loop {
+            let progress: usize = progess.iter().map(|p| p.load(Ordering::SeqCst)).sum();
+            print!("Batch running {}% ", progress * 100 / 150 / games);
+            let bar_length = progress * 50 / 150 / games;
+            print!("[{}{}]", "=".repeat(bar_length), " ".repeat(50 - bar_length));
+            io::stdout().flush().unwrap();
+            if progress >= 150 * games {
+                break;
+            }
+            thread::sleep(Duration::from_millis(100));
+            print!("\r");
+            print!("\x1B[K");
         }
         println!();
         self.extend(datas.read().unwrap().clone());
@@ -325,6 +346,7 @@ impl TrainPipeline {
                 .unwrap();
 
             let content = res.text().await.unwrap();
+            println!("timestamp: {}", content);
             self.timestamp = content.parse().unwrap();
 
             let len = self.collect_data(8, 99999, batch);
@@ -709,6 +731,7 @@ def graphic(board, players):
  */
 
 fn start_self_play(
+    progress: Arc<AtomicUsize>,
     net: Arc<RwLock<net::Net>>,
     temp: f32,
     c_puct: f32,
@@ -738,8 +761,10 @@ fn start_self_play(
         current_players.push(board.current_player().try_into().unwrap());
         //println!("move:{} status:{}", move_, board.status);
         board.do_move(move_.try_into().unwrap(), true, true);
+        progress.fetch_add(1, Ordering::SeqCst);
         let (end, winner) = board.game_end();
         if end {
+            progress.store(150, Ordering::SeqCst);
             let mut winner_z = vec![0.0; current_players.len()];
             let mut i = 0;
             while i < current_players.len() {
