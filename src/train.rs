@@ -350,7 +350,8 @@ impl TrainPipeline {
             .send()
             .await
             .unwrap();
-        let content = res.text().await.unwrap().trim();
+        let content = res.text().await.unwrap();
+        let content = content.trim();
         if content == "" {
             return;
         }
