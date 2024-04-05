@@ -350,9 +350,9 @@ impl NetTrain {
         let (p, v) = self.net.read().unwrap().net.forward_t(&state_tensor, false);
         return (p.exp(), v);
     }
-    pub async fn save(&self, path: &str, http_address: &str) {
+    pub async fn save(&self, path: &str, http_address: String) {
         self.net.write().unwrap().vs.save(path).unwrap();
-        if http_address == "" {
+        if http_address.is_empty() {
             return;
         }
         let file = fs::read(path).unwrap();

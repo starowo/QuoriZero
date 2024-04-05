@@ -102,9 +102,9 @@ impl TrainPipeline {
             }),
             data_buffer: Vec::new(),
             kl_targ: 0.0005,
-            lr: 0.002,
+            lr: 0.02,
             lr_multiplier: 1.0 ,
-            evaluate_playout: 3000,
+            evaluate_playout: 1200,
             win_rate: 0.8,
 
         }
@@ -250,7 +250,7 @@ impl TrainPipeline {
                     state.clone(),
                     prob.clone(),
                     win.clone(),
-                    self.lr * self.lr_multiplier,
+                    self.lr,
                 );
                 p_loss_total += ploss;
                 v_loss_total += vloss;
@@ -271,6 +271,7 @@ impl TrainPipeline {
                     .sum_dim_intlist(x, false, tch::Kind::Float)
                     .mean(tch::Kind::Float)
                     .try_into().unwrap();
+                /*
                 if kl > self.kl_targ * 4. {
                     //early stopping if D_KL diverges badly
                     self.lr_multiplier /= 1.5;
@@ -281,7 +282,7 @@ impl TrainPipeline {
                 if kl < self.kl_targ / 2. && self.lr_multiplier < 10. {
                     self.lr_multiplier *= 1.5;
                 }
-
+                */
                 /*for index in mini_batch {
                     self.data_buffer[index].loss = ploss + vloss;
                     self.data_buffer[index].weight *= 0.65
@@ -305,16 +306,15 @@ impl TrainPipeline {
                 kl_t += kl;
                 var_new_t += value_variance_new;
                 var_old_t += value_variance_old;
-                println!("kl: {}, lr_ratio: {:.3}, policy_loss:{:.6}, value_loss:{:.6}, var_old: {:.3}, var_new: {:.3}", kl, self.lr_multiplier, ploss, vloss, value_variance_old, value_variance_new)
+                //println!("kl: {}, lr_ratio: {:.3}, policy_loss:{:.6}, value_loss:{:.6}, var_old: {:.3}, var_new: {:.3}", kl, self.lr_multiplier, ploss, vloss, value_variance_old, value_variance_new)
             }
-            //println!("batch trained, kl: {}, policy_loss:{:.6}, value_loss:{:.6}, var_old: {:.3}, var_new: {:.3}", kl_t / batches as f32, p_loss_total / batches as f32, v_loss_total / batches as f32, var_old_t / batches as f32, var_new_t / batches as f32)
+            println!("batch trained, kl: {}, policy_loss:{:.6}, value_loss:{:.6}, var_old: {:.3}, var_new: {:.3}", kl_t / batches as f32, p_loss_total / batches as f32, v_loss_total / batches as f32, var_old_t / batches as f32, var_new_t / batches as f32)
         }
     }
 
     async fn train(&mut self) {
         let mut batch: usize = 0;
         loop {
-            batch += 1;
             //let len = self.collect_data(3, max(10, batch / 10), batch);
 
             let client = Client::new();
@@ -356,21 +356,20 @@ impl TrainPipeline {
                 len,
                 self.data_buffer.len()
             );
-            if self.data_buffer.len() >= 0 {
-                //self.train_step();
-                self.send_data_to_server().await;
-            }
-            if batch % 1 == 0 {
-                self.net.save("latest.model", "").await;
-            }
-            if batch % 50 == 0 {
-                {
-                    let wr =
-                        weight_comparation(self.net.net.clone(), 1e-4, 4.0, 800, self.tx.clone());
-                    println!("winrate: {:.3}", wr);
-                    if wr > 0.55 {
-                        println!("new best!");
-                        self.net.save("best.model", "").await;
+            self.get_data_from_server().await;
+            if self.data_buffer.len() >= BATCH_SIZE * 10 {
+                self.train_step();
+                self.net.save("latest.model", format!("{}/model", self.http_address)).await;
+                batch += 1;
+                if batch % 50 == 0 {
+                    {
+                        let wr =
+                            weight_comparation(self.net.net.clone(), 1e-4, 4.0, 800, self.tx.clone());
+                        println!("winrate: {:.3}", wr);
+                        if wr > 0.55 {
+                            println!("new best!");
+                            self.net.save("best.model", String::from("")).await;
+                        }
                     }
                 }
             }
@@ -386,6 +385,20 @@ impl TrainPipeline {
             .await
             .unwrap();
     }
+
+    async fn get_data_from_server(&mut self) {
+        let client = Client::new();
+        let res = client.get(&format!("{}/getdata", self.http_address))
+            .send()
+            .await
+            .unwrap();
+        let content = res.text().await.unwrap();
+        let contents = content.split("\n");
+        for content in contents {
+            self.data_buffer.extend::<Vec<SingleData>>(serde_json::from_str(content).unwrap());
+        }
+    }
+
 }
 fn has_duplicate_values(vec: Vec<usize>) -> bool {
     let set: HashSet<_> = vec.iter().collect();
