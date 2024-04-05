@@ -13,7 +13,7 @@ async fn main() {
     }
     let server_address = &args[1];
     let server_port = &args[2];
-    let server_url = format!("http://{}:{}", server_address, server_port);
+    let server_url = format!("{}:{}", server_address, server_port);
     train::train(server_url).await;
 
 }
