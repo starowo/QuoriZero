@@ -4,7 +4,6 @@ use rand::seq::SliceRandom;
 use rand::Rng;
 use reqwest::Client;
 use serde::Deserialize;
-use websocket::client;
 use std::collections::HashSet;
 use std::io;
 use std::io::copy;
@@ -15,7 +14,6 @@ use std::sync::{mpsc, RwLock};
 use std::time::Duration;
 use std::{sync::Arc, thread};
 use tch::{Device, Tensor};
-use websocket::OwnedMessage;
 
 use super::mcts_pure_parallel;
 
@@ -24,51 +22,15 @@ use super::mcts_a0::MCTSPlayer;
 use super::net::{self, Net};
 use serde::Serialize;
 
-pub async fn train(http_address: String, tx: Option<mpsc::Sender<OwnedMessage>>) {
+pub async fn train(http_address: String) {
     //humanplay(net::Net::new(Some("skating_best.model")), 1e-4, 2., 4000, true, 1, 1);
     //ai_suggestion(net::Net::new(Some("skating_best.model")), 1e-4, 2.0, 4000, true, 0);
-    TrainPipeline::new(http_address, tx).train().await;
+    TrainPipeline::new(http_address).train().await;
     //weight_comparation(Arc::new(net::Net::new(Some("santorini_best copy.model")).into()), 1e-4, 5., 400);
     //evaluate_with_pure_mcts(Arc::new(net::Net::new(Some("skating_best.model")).into()), 1e-4, 5.0, 400, 50000, false);
     //test()
 }
 
-pub fn play(tx: Option<Sender<OwnedMessage>>, rx: Receiver<usize>) {
-    //humanplay(net::Net::new(Some("latest.model")), 1e-4, 1.5, 800, true, 2, 2, tx.clone(), rx);
-    thread::spawn(move || {
-        humanplay(
-            net::Net::new(Some("latest.model")),
-            1e-4,
-            4.0,
-            6000,
-            true,
-            1,
-            2,
-            tx.clone(),
-            rx,
-        );
-    });
-}
-
-fn test() {
-    /*
-    let tensor = Tensor::of_slice(&size);
-    let parts = tensor.split_with_sizes(&[81, 1], 0);
-    let (p, v): (&Vec<f64>, &Tensor) = (&parts[0].exp().into(), &parts[1]);
-    let mut probs = vec![];
-    for i in 0..81 {
-        if available.contains(&i) {
-            probs.push(p[i]);
-        }else {
-            probs.push(0.);
-        }
-    }
-    let value: f64 = v.into();
-    println!("{:?}, {}", probs, value)
-     */
-    let mut board = Board::new(None);
-    board.init(0);
-}
 pub const BATCH_SIZE: usize = 512;
 const BUFFER_SIZE: usize = 10000;
 
@@ -78,7 +40,6 @@ const SELFPLAY_CPUCT: f32 = 2.0;
 
 struct TrainPipeline {
     http_address: String,
-    tx: Option<mpsc::Sender<OwnedMessage>>,
     timestamp: u64,
     net: net::NetTrain,
     data_buffer: Vec<SingleData>,
@@ -90,10 +51,9 @@ struct TrainPipeline {
 }
 
 impl TrainPipeline {
-    fn new(http_address: String, tx: Option<mpsc::Sender<OwnedMessage>>) -> Self {
+    fn new(http_address: String) -> Self {
         Self {
             http_address,
-            tx,
             timestamp: 0,
             net: net::NetTrain::new(if std::path::Path::new("latest.model").exists() {
                 Some("latest.model")
@@ -141,7 +101,6 @@ impl TrainPipeline {
             let games = games;
             let played = played.clone();
             let len = len.clone();
-            let tx = self.tx.clone();
             let progress = progess.clone();
             let t = std::thread::Builder::new()
                 .name(format!("selfplay {}", i))
@@ -159,7 +118,6 @@ impl TrainPipeline {
                             SELFPLAY_CPUCT,
                             SELFPLAY_PLAYOUT,
                             4,
-                            if i == 0 { tx.clone() } else { None },
                         );
                         let mut dva = data;
                         if dva.len() > max_length {
@@ -240,7 +198,6 @@ impl TrainPipeline {
                     .collect::<Vec<String>>()
                     .join(",");
                 str = format!("output{}", str);
-                let _ = self.tx.clone().unwrap().send(OwnedMessage::Text(str));
                 let mut ploss = 0.;
                 let mut vloss = 0.;
                 let mut newp;
@@ -364,7 +321,7 @@ impl TrainPipeline {
                 if batch % 50 == 0 {
                     {
                         let wr =
-                            weight_comparation(self.net.net.clone(), 1e-4, 4.0, 800, self.tx.clone());
+                            weight_comparation(self.net.net.clone(), 1e-4, 4.0, 1200);
                         println!("winrate: {:.3}", wr);
                         if wr > 0.55 {
                             println!("new best!");
@@ -420,76 +377,29 @@ impl SingleData {
     
 }
 
-fn humanplay<'a>(
-    net: net::Net,
-    temp: f32,
-    c_puct: f32,
-    n_playout: usize,
-    a0: bool,
-    start: u16,
-    player_: u8,
-    tx: Option<Sender<OwnedMessage>>,
-    rx: Receiver<usize>
-) {
-    let mut board = Board::new(tx.clone());
-    board.init(start);
-    if a0 {
-        let mut player = MCTSPlayer::new(Arc::new(net.into()), c_puct, n_playout, false, 2);
-        let mut history = vec![];
-        loop {
-            history.push(board.clone());
-            let current = board.current_player();
-            if current == player_ {
-                let (move_, nums) = player.get_action(&mut board, temp, true, 6);
-                let mut map = nums
-                    .iter()
-                    .enumerate()
-                    .map(|(k, v)| (k, v))
-                    .collect::<Vec<(usize, &f32)>>();
-                map.sort_by(|(_, b), (_, a)| a.partial_cmp(b).unwrap());
-                board.do_move(move_.try_into().unwrap(), true, true);
-                player.mcts.update_with_move(move_, false);
-                println!("move:{}", move_);
-            } else {
-                let p = rx.recv();
-                let p = p.unwrap();
-                board.do_move(p.try_into().unwrap(), true, true);
-                player.mcts.update_with_move(p.try_into().unwrap(), false);
-            }
-            let (end, winner) = board.game_end();
-            if end {
-                println!("winner is {}", winner);
-                return;
-            }
-        }
-    }
-}
-
 fn weight_comparation(
     net: Arc<RwLock<Net>>,
     temp: f32,
     c_puct: f32,
     n_playout_a0: usize,
-    tx: Option<Sender<OwnedMessage>>,
 ) -> f32 {
     let a = Arc::new(AtomicI32::new(0));
     let mut threads = vec![];
     //let time = std::time::SystemTime::now();
     let played = Arc::new(AtomicUsize::new(0));
     let best = Arc::new(RwLock::new(Net::new(Some("best.model"))));
-    for i in 0..1 {
+    for i in 0..2 {
         let a1 = a.clone();
         let net = net.clone();
         let best = best.clone();
         let played = played.clone();
-        let tx = tx.clone();
         let t = std::thread::Builder::new()
             .name(format!("thread {}", i))
             .spawn(move || {
-                while played.load(Ordering::SeqCst) < 1 {
+                while played.load(Ordering::SeqCst) < 10 {
                     played.fetch_add(1, Ordering::SeqCst);
                     let n = net.clone();
-                    let mut board = Board::new(tx.clone());
+                    let mut board = Board::new();
                     let b = best.clone();
                     board.init(i % 2 + 1);
                     if true {
@@ -551,7 +461,7 @@ fn weight_comparation(
     for t in threads {
         t.join().unwrap();
     }
-    a.load(std::sync::atomic::Ordering::SeqCst) as f32 / 2.
+    a.load(std::sync::atomic::Ordering::SeqCst) as f32 / 20.
 }
 
 fn evaluate_with_pure_mcts_parallel(
@@ -560,7 +470,6 @@ fn evaluate_with_pure_mcts_parallel(
     c_puct: f32,
     n_playout_a0: usize,
     n_playout_pure: usize,
-    tx: Option<mpsc::Sender<OwnedMessage>>,
 ) -> f32 {
     let a = Arc::new(AtomicI32::new(0));
     let mut threads = vec![];
@@ -570,7 +479,6 @@ fn evaluate_with_pure_mcts_parallel(
         let a1 = a.clone();
         let net = net.clone();
         let played = played.clone();
-        let tx = tx.clone();
         let t = std::thread::Builder::new()
             .name(format!("thread {}", i))
             .spawn(move || {
@@ -578,7 +486,7 @@ fn evaluate_with_pure_mcts_parallel(
                 while count < 5 {
                     played.fetch_add(1, Ordering::SeqCst);
                     let n = net.clone();
-                    let mut board = Board::new(tx.clone());
+                    let mut board = Board::new();
                     board.init((count % 2 + 1).try_into().unwrap());
                     if true {
                         let mut player = MCTSPlayer::new(n, c_puct, n_playout_a0, false, 1);
@@ -750,9 +658,8 @@ fn start_self_play(
     c_puct: f32,
     n_playout: usize,
     thread: usize,
-    tx: Option<Sender<OwnedMessage>>,
 ) -> (i8, Vec<SingleData>) {
-    let mut board = Board::new(tx);
+    let mut board = Board::new();
     let mut i: f32 = 0.0;
     board.init(rand::thread_rng().gen_range::<u16, u16, u16>(1, 3));
     let mut player = MCTSPlayer::new(net.clone(), c_puct, n_playout, true, 1);
@@ -843,34 +750,6 @@ fn into_data(state: (Array3<f32>, Vec<f32>, f32), weight: f32) -> SingleData {
         state: (state.0.into_raw_vec(), state.1, state.2),
         loss: 0.,
         weight,
-    }
-}
-
-fn send_data(data: Vec<SingleData>, tx: Sender<OwnedMessage>) {
-    let size = data.len() / 4;
-    {
-        let mut s: String = String::from("data");
-        let sample = data[25].clone();
-        for i in sample.state.0.iter() {
-            s.push_str(&format!("{},", i));
-        }
-        for i in sample.state.1.iter() {
-            s.push_str(&format!("{},", i));
-        }
-
-        tx.send(OwnedMessage::Text(s)).unwrap();
-    }
-    for j in 0..3 {
-        let mut s: String = String::from("data");
-        let sample = data[size + 25 * 3 + j].clone();
-        for i in sample.state.0.iter() {
-            s.push_str(&format!("{},", i));
-        }
-        for i in sample.state.1.iter() {
-            s.push_str(&format!("{},", i));
-        }
-
-        tx.send(OwnedMessage::Text(s)).unwrap();
     }
 }
 
