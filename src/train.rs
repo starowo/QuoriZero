@@ -102,7 +102,7 @@ impl TrainPipeline {
     }
 
     fn collect_data(&mut self, games: usize, max_length: usize, batch: usize) -> usize {
-        const RUN_THREADS: usize = 2;
+        const RUN_THREADS: usize = 4;
         let mut threads = vec![];
         let len = Arc::new(AtomicUsize::new(0));
         let datas = Arc::new(RwLock::new(vec![]));
@@ -363,7 +363,7 @@ struct SingleData {
 impl SingleData {
 
     fn get_state(&self) -> (Array3<f32>, Vec<f32>, f32) {
-        let state = Array3::from_shape_vec((9, 19, 19), self.state.0.clone()).unwrap();
+        let state = Array3::from_shape_vec((9, 17, 17), self.state.0.clone()).unwrap();
         (state, self.state.1.clone(), self.state.2)
     }
     
