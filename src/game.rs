@@ -117,6 +117,9 @@ impl Board {
         self.status = start_player;
         self.start = self.status;
         self.check_available();
+        if self.tx.is_some() {
+            let _ = self.tx.as_ref().unwrap().send(websocket::OwnedMessage::Text(self.get_state_string()));
+        }
     }
     fn check_available(&mut self) {
         self.available.clear();

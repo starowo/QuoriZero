@@ -625,8 +625,8 @@ fn humanplay<'a>(
             } else {
                 let p = rx.recv();
                 let p = p.unwrap();
-                board.do_move(p.try_into().unwrap(), true, false);
-                player.mcts.update_with_move(p.try_into().unwrap(), true);
+                board.do_move(p.try_into().unwrap(), true, true);
+                player.mcts.update_with_move(p.try_into().unwrap(), false);
             }
             let (end, winner) = board.game_end();
             if end {
