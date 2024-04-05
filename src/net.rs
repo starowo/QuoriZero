@@ -14,7 +14,6 @@ use tch::{
     },
     Device, Kind, Shape, Tensor,
 };
-use websocket::client;
 
 use super::train::BATCH_SIZE;
 
