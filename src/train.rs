@@ -350,7 +350,10 @@ impl TrainPipeline {
             .send()
             .await
             .unwrap();
-        let content = res.text().await.unwrap();
+        let content = res.text().await.unwrap().trim();
+        if content == "" {
+            return;
+        }
         let contents = content.split("\n");
         for content in contents {
             self.data_buffer.extend::<Vec<SingleData>>(serde_json::from_str(content).unwrap());
