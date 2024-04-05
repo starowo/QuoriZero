@@ -2,8 +2,11 @@ use ndarray::prelude::*;
 use ndarray::Array3;
 use rand::seq::SliceRandom;
 use rand::Rng;
+use reqwest::Client;
+use serde::Deserialize;
 use std::collections::HashSet;
 use std::io;
+use std::io::copy;
 use std::io::Write;
 use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
@@ -17,16 +20,16 @@ use super::mcts_pure_parallel;
 use super::game::Board;
 use super::mcts_a0::MCTSPlayer;
 use super::net::{self, Net};
+use serde::Serialize;
 
-pub fn train() {
+pub async fn train(http_address: String) {
     //humanplay(net::Net::new(Some("skating_best.model")), 1e-4, 2., 4000, true, 1, 1);
     //ai_suggestion(net::Net::new(Some("skating_best.model")), 1e-4, 2.0, 4000, true, 0);
-    TrainPipeline::new().train();
+    TrainPipeline::new(http_address).train().await;
     //weight_comparation(Arc::new(net::Net::new(Some("santorini_best copy.model")).into()), 1e-4, 5., 400);
     //evaluate_with_pure_mcts(Arc::new(net::Net::new(Some("skating_best.model")).into()), 1e-4, 5.0, 400, 50000, false);
-    test()
+    //test()
 }
-
 
 fn test() {
     /*
@@ -52,9 +55,11 @@ const BUFFER_SIZE: usize = 10000;
 
 const SELFPLAY_PLAYOUT: usize = 800;
 const SELFPLAY_TEMP: f32 = 1.0;
-const SELFPLAY_CPUCT: f32 = 4.0;
+const SELFPLAY_CPUCT: f32 = 2.0;
 
 struct TrainPipeline {
+    http_address: String,
+    timestamp: u64,
     net: net::NetTrain,
     data_buffer: Vec<SingleData>,
     kl_targ: f32,
@@ -65,8 +70,10 @@ struct TrainPipeline {
 }
 
 impl TrainPipeline {
-    fn new() -> Self {
+    fn new(http_address: String) -> Self {
         Self {
+            http_address,
+            timestamp: 0,
             net: net::NetTrain::new(if std::path::Path::new("latest.model").exists() {
                 Some("latest.model")
             } else {
@@ -75,9 +82,10 @@ impl TrainPipeline {
             data_buffer: Vec::new(),
             kl_targ: 0.0005,
             lr: 0.002,
-            lr_multiplier: 1.0 / 1.5,
+            lr_multiplier: 1.0 ,
             evaluate_playout: 3000,
             win_rate: 0.8,
+
         }
     }
 
@@ -94,28 +102,41 @@ impl TrainPipeline {
     }
 
     fn collect_data(&mut self, games: usize, max_length: usize, batch: usize) -> usize {
+        const RUN_THREADS: usize = 2;
         let mut threads = vec![];
         let len = Arc::new(AtomicUsize::new(0));
-        println!("generating data");
         let datas = Arc::new(RwLock::new(vec![]));
         let played = Arc::new(AtomicUsize::new(0));
-        for i in 0..8 {
+        let progess: Vec<Arc<AtomicUsize>> = (0..games)
+            .map(|_| Arc::new(AtomicUsize::new(0)))
+            .collect();
+        for i in 0..RUN_THREADS {
             let datas = datas.clone();
-            let net = if i == 0  {self.net.net.clone()} else {net::NetTrain::new(Some("latest.model")).net.clone()};
+            let net = if i == 0  {self.net.net.clone()} else {net::NetTrain::new(if std::path::Path::new("latest.model").exists() {
+                Some("latest.model")
+            } else {
+                None
+            }).net.clone()};
             let games = games;
             let played = played.clone();
             let len = len.clone();
+            let progress = progess.clone();
             let t = std::thread::Builder::new()
                 .name(format!("selfplay {}", i))
                 .spawn(move || {
-                    while played.load(Ordering::SeqCst) < games {
+                    loop {
+                        let played_games = played.load(Ordering::SeqCst);
+                        if played_games >= games {
+                            break;
+                        }
                         played.fetch_add(1, Ordering::SeqCst);
                         let (_, data) = start_self_play(
+                            progress[played_games].clone(),
                             net.clone(),
                             SELFPLAY_TEMP,
                             SELFPLAY_CPUCT,
                             SELFPLAY_PLAYOUT,
-                            4,
+                            4
                         );
                         let mut dva = data;
                         if dva.len() > max_length {
@@ -130,15 +151,23 @@ impl TrainPipeline {
                         let equi_data = get_equi_data(dva);
                         //send_data(equi_data.clone(), tx.clone().unwrap());
                         datas.write().unwrap().extend(equi_data);
-                        print!("-");
-                        io::stdout().flush().unwrap()
                     }
                 })
                 .unwrap();
             threads.push(t);
         }
-        for t in threads {
-            t.join().unwrap();
+        loop {
+            let progress: usize = progess.iter().map(|p| p.load(Ordering::SeqCst)).sum();
+            print!("Batch running {}% ", progress * 100 / 150 / games);
+            let bar_length = progress * 50 / 150 / games;
+            print!("[{}{}]", "=".repeat(bar_length), " ".repeat(50 - bar_length));
+            io::stdout().flush().unwrap();
+            if progress >= 150 * games {
+                break;
+            }
+            thread::sleep(Duration::from_millis(100));
+            print!("\r");
+            print!("\x1B[K");
         }
         println!();
         self.extend(datas.read().unwrap().clone());
@@ -167,7 +196,7 @@ impl TrainPipeline {
                 sample(&mut rand::thread_rng(), self.data_buffer.len(), BATCH_SIZE).into_vec();*/
                 let (mut state, mut prob, mut win) = (vec![], vec![], vec![]);
                 for index in i * BATCH_SIZE..(i + 1) * BATCH_SIZE {
-                    let (a, b, c) = &self.data_buffer.remove(0).state;
+                    let (a, b, c) = &self.data_buffer.remove(0).get_state();
                     state.extend(a.clone().into_raw_vec());
                     prob.extend(b);
                     win.push(*c);
@@ -187,6 +216,7 @@ impl TrainPipeline {
                     .map(|x| x.to_string())
                     .collect::<Vec<String>>()
                     .join(",");
+                str = format!("output{}", str);
                 let mut ploss = 0.;
                 let mut vloss = 0.;
                 let mut newp;
@@ -257,11 +287,44 @@ impl TrainPipeline {
         }
     }
 
-    fn train(&mut self) {
-        let mut batch: usize = 820;
+    async fn train(&mut self) {
+        let mut batch: usize = 0;
         loop {
             batch += 1;
             //let len = self.collect_data(3, max(10, batch / 10), batch);
+
+            let client = Client::new();
+            let res = client.get(&format!("{}/getmodel", self.http_address))
+                .body(self.timestamp.to_string())
+                .send()
+                .await
+                .unwrap();
+
+            match res.status().as_u16() {
+                200 => {
+                    // remove the old model
+                    let _ = std::fs::remove_file("latest.model");
+                    let mut file = std::fs::File::create("latest.model").unwrap();
+                    let content = res.bytes().await.unwrap();
+                    copy(&mut content.as_ref(), &mut file).unwrap();
+                    println!("model updated")
+                }
+                305 => {
+                }
+                _ => {
+                    println!("error: {}", res.status().as_u16());
+                }
+            }
+
+            let res = client.get(&format!("{}/gettimestamp", self.http_address))
+                .send()
+                .await
+                .unwrap();
+
+            let content = res.text().await.unwrap();
+            println!("timestamp: {}", content);
+            self.timestamp = content.parse().unwrap();
+
             let len = self.collect_data(8, 99999, batch);
             println!(
                 "batch {}, episode_len:{}, buffer_len:{}",
@@ -269,581 +332,45 @@ impl TrainPipeline {
                 len,
                 self.data_buffer.len()
             );
-            if self.data_buffer.len() >= BATCH_SIZE {
-                self.train_step();
-            }
-            if batch % 1 == 0 {
-                self.net.save("latest.model");
-            }
-            if batch % 50 == 0 {
-                {
-                    let wr =
-                        weight_comparation(self.net.net.clone(), 1e-4, 4.0, 3000);
-                    println!("winrate: {:.3}", wr);
-                    if wr > 0.55 {
-                        println!("new best!");
-                        self.net.save("best.model");
-                    }
-                }
+            if self.data_buffer.len() >= 0 {
+                //self.train_step();
+                self.send_data_to_server().await;
             }
         }
+    }
+
+    async fn send_data_to_server(&mut self) {
+        let client = Client::new();
+        let data = serde_json::to_string(&self.data_buffer).unwrap();
+        let res = client.post(&format!("{}/train", self.http_address))
+            .body(data)
+            .send()
+            .await
+            .unwrap();
     }
 }
 fn has_duplicate_values(vec: Vec<usize>) -> bool {
     let set: HashSet<_> = vec.iter().collect();
     vec.len() != set.len()
 }
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 struct SingleData {
-    state: (Array3<f32>, Vec<f32>, f32),
+    state: (Vec<f32>, Vec<f32>, f32),
     loss: f32,
     weight: f32,
 }
 
-fn ai_suggestion<'a>(
-    net: net::Net,
-    temp: f32,
-    c_puct: f32,
-    n_playout: usize,
-    a0: bool,
-    start: u16,
-) {
-    /*
-        pyo3::prepare_freethreaded_python();
-        Python::with_gil(|py| {
-            let mut board = Board::new();
-            board.init(start);
-            let mut input_1 = String::new();
-            println!("Please enter board string:");
-            io::stdin().read_line(&mut input_1)
-                .expect("Failed to read line");
+impl SingleData {
 
-            let states: Vec<&str> = input_1.trim().split(";").collect();
-            if states.len() != 4 {
-                panic!("invalid board string");
-            }
-            let board_state = states[0];
-            let p1: Vec<&str> = states[1].split(",").collect();
-            let p2: Vec<&str> = states[2].split(",").collect();
-            let p1_1 = p1[0].parse::<i16>().unwrap();
-            let p1_2 = p1[1].parse::<i16>().unwrap();
-            let p2_1 = p2[0].parse::<i16>().unwrap();
-            let p2_2 = p2[1].parse::<i16>().unwrap();
-            let phase = states[3].parse::<u16>().unwrap();
-            for i in 0..25 {
-                let c = board_state.chars().nth(i).unwrap();
-                board.states[i] = c.to_digit(10).unwrap() as u16;
-            }
-            board.p1_1 = p1_1;
-            board.p1_2 = p1_2;
-            board.p2_1 = p2_1;
-            board.p2_2 = p2_2;
-            board.phase = if phase > 2 {0} else {1};
-            board.status = (phase - 1) % 2 + 1;
-            board.check_available();
-            let graphfn = PyModule::from_code(
-                py,
-                r#"
-    def graphic(board, players):
-        """Draw the board and show game info"""
-        size = 5
-        player1 = 1
-        player2 = 2
-        #print("Player", player1, "with X".rjust(3))
-        #print("Player", player2, "with O".rjust(3))
-        print()
-        print("    ", end='')
-        for x in range(size):
-            print(str(x).center(6), end='')
-        print('\r\n')
-        for i in range(size):
-            print("{0:4d}".format(i), end='')
-            for j in range(size):
-                loc = i * size + j
-                if players[0] != -1 and players[0] % 25 == loc:
-                    print('a'.center(6), end='')
-                elif players[1] != -1 and players[1] % 25 == loc:
-                    print('b'.center(6), end='')
-                elif players[2] != -1 and players[2] % 25 == loc:
-                    print('A'.center(6), end='')
-                elif players[3] != -1 and players[3] % 25 == loc:
-                    print('B'.center(6), end='')
-                else:
-                    p = board[loc]
-                    print('{}'.format(p).center(6), end='')
-            print('\r\n')
-    "#,
-                "graph.py",
-                "graph",
-            )
-            .unwrap()
-            .getattr("graphic")
-            .unwrap();
-            graphfn.call1((board.states, [board.p1_1, board.p1_2, board.p2_1, board.p2_2])).expect("e");
-            if a0 {
-                let mut history = vec![];
-                let mut player = MCTSPlayer::new(Arc::new(net.into()), c_puct, n_playout, false);
-                loop {
-                    history.push(board.clone());
-                    let current = board.current_player();
-                    if current == 1 || current == 2 {
-                        let (move_, nums) = player.get_action(&mut board, temp, true, 6);
-                        /*let mut map = nums
-                            .iter()
-                            .enumerate()
-                            .map(|(k, v)| (k, v))
-                            .collect::<Vec<(usize, &f32)>>();
-                        map.sort_by(|(_, b), (_, a)| a.partial_cmp(b).unwrap());
-                        let mut i = 0;
-                        while i < 3 && i < map.len() {
-                            let (move_, value) = map[i];
-                            let (x, y) = Board::move_to_loc(move_ % 25);
-                            println!("move: {},{},{} prob:{}", x, y, move_ / 25 + 1, value);
-                            i += 1
-                        }*/
-
-                        let mut input_1 = String::new();
-                        let mut input_3 = String::new();
-
-                        println!("Please enter coordinate:");
-                        io::stdin().read_line(&mut input_1)
-                            .expect("Failed to read line");
-
-                        if input_1.contains("undo") {
-                            history.pop();
-                            board = history.pop().unwrap();
-                            player.mcts.update_with_move(-1, false);
-                            continue;
-                        }
-
-                        // 将输入的字符串转换为数字类型
-                        let num1 = input_1.trim().chars().nth(0).unwrap() as i32 - 'a' as i32;
-                        let num2 = input_1.trim().chars().nth(1).unwrap() as i32 - '1' as i32;
-
-                        let id = if board.phase != 2 {
-                            println!("Please enter id:");
-                            io::stdin().read_line(&mut input_3)
-                                .expect("Failed to read line");
-                            let num: i32 = input_3.trim().parse()
-                                .expect("Please enter a valid number");
-                            num - 1
-                        }else {
-                            2
-                        };
-
-                        let p = num1 + num2 * 5 + 25 * id;
-                        if board.do_move(p.try_into().unwrap(), true) {
-                            player.mcts.update_with_move(p, false);
-                        }
-                        graphfn.call1((board.states, [board.p1_1, board.p1_2, board.p2_1, board.p2_2])).expect("e");
-                    }
-                    let (end, winner) = board.game_end();
-                    if end {
-                        println!("winner is {}", winner);
-                        return;
-                    }
-                }
-            }
-        });
-         */
-}
-
-fn external_suggestion<'a>(
-    net: net::Net,
-    temp: f32,
-    c_puct: f32,
-    n_playout: usize,
-    a0: bool,
-    start: u16,
-) {
-    /*
-        pyo3::prepare_freethreaded_python();
-        Python::with_gil(|py| {
-            let mut board = Board::new();
-            board.init(start);
-            let graphfn = PyModule::from_code(
-                py,
-                r#"
-    def graphic(board, players):
-        """Draw the board and show game info"""
-        size = 5
-        player1 = 1
-        player2 = 2
-        #print("Player", player1, "with X".rjust(3))
-        #print("Player", player2, "with O".rjust(3))
-        print()
-        print("    ", end='')
-        for x in range(size):
-            print(('a', 'b', 'c', 'd', 'e')[x].center(6), end='')
-        print('\r\n')
-        for i in range(size):
-            print("{0:4d}".format(i), end='')
-            for j in range(size):
-                loc = i * size + j
-                if players[0] != -1 and players[0] % 25 == loc:
-                    print('a'.center(6), end='')
-                elif players[1] != -1 and players[1] % 25 == loc:
-                    print('b'.center(6), end='')
-                elif players[2] != -1 and players[2] % 25 == loc:
-                    print('A'.center(6), end='')
-                elif players[3] != -1 and players[3] % 25 == loc:
-                    print('B'.center(6), end='')
-                else:
-                    p = board[loc]
-                    print('{}'.format(p).center(6), end='')
-            print('\r\n')
-    "#,
-                "graph.py",
-                "graph",
-            )
-            .unwrap()
-            .getattr("graphic")
-            .unwrap();
-            graphfn.call1((board.states, [board.p1_1, board.p1_2, board.p2_1, board.p2_2])).expect("e");
-            if a0 {
-                let mut player = MCTSPlayer::new(Arc::new(net.into()), c_puct, n_playout, false);
-                loop {
-                    let current = board.current_player();
-                    if current == 1 || current == 2 {
-                        /*let mut map = nums
-                            .iter()
-                            .enumerate()
-                            .map(|(k, v)| (k, v))
-                            .collect::<Vec<(usize, &f32)>>();
-                        map.sort_by(|(_, b), (_, a)| a.partial_cmp(b).unwrap());
-                        let mut i = 0;
-                        while i < 3 && i < map.len() {
-                            let (move_, value) = map[i];
-                            let (x, y) = Board::move_to_loc(move_ % 25);
-                            println!("move: {},{},{} prob:{}", x, y, move_ / 25 + 1, value);
-                            i += 1
-                        }*/
-
-                        let mut input_1 = String::new();
-                        println!("Please enter board string:");
-                        io::stdin().read_line(&mut input_1)
-                            .expect("Failed to read line");
-
-                        let states: Vec<&str> = input_1.trim().split(";").collect();
-                        if states.len() != 4 {
-                            println!("invalid board string");
-                            continue;
-                        }
-                        let board_state = states[0];
-                        let p1: Vec<&str> = states[1].split(",").collect();
-                        let p2: Vec<&str> = states[2].split(",").collect();
-                        let p1_1 = p1[0].parse::<i16>().unwrap();
-                        let p1_2 = p1[1].parse::<i16>().unwrap();
-                        let p2_1 = p2[0].parse::<i16>().unwrap();
-                        let p2_2 = p2[1].parse::<i16>().unwrap();
-                        let phase = states[3].parse::<u16>().unwrap();
-                        for i in 0..25 {
-                            let c = board_state.chars().nth(i).unwrap();
-                            board.states[i] = c.to_digit(10).unwrap() as u16;
-                        }
-                        board.p1_1 = p1_1;
-                        board.p1_2 = p1_2;
-                        board.p2_1 = p2_1;
-                        board.p2_2 = p2_2;
-                        board.phase = if phase > 2 {0} else {1};
-                        board.status = (phase - 1) % 2 + 1;
-                        board.check_available();
-                        let (move_, nums) = player.get_action(&mut board, temp, true, 6);
-                        board.do_move(move_.try_into().unwrap(), true);
-                        if board.phase != 0 {
-                            player.mcts.update_with_move(move_, false);
-                            player.get_action(&mut board, temp, true, 6);
-                        }
-                        player.mcts.update_with_move(-1, false);
-                        graphfn.call1((board.states, [board.p1_1, board.p1_2, board.p2_1, board.p2_2])).expect("e");
-                    }
-                    let (end, winner) = board.game_end();
-                    if end {
-                        println!("winner is {}", winner);
-                        return;
-                    }
-                }
-            }
-        });
-        */
-}
-
-
-fn weight_comparation(
-    net: Arc<RwLock<Net>>,
-    temp: f32,
-    c_puct: f32,
-    n_playout_a0: usize,
-) -> f32 {
-    let a = Arc::new(AtomicI32::new(0));
-    let mut threads = vec![];
-    //let time = std::time::SystemTime::now();
-    let played = Arc::new(AtomicUsize::new(0));
-    let best = Arc::new(RwLock::new(Net::new(Some("best.model"))));
-    for i in 0..1 {
-        let a1 = a.clone();
-        let net = net.clone();
-        let best = best.clone();
-        let played = played.clone();
-        let t = std::thread::Builder::new()
-            .name(format!("thread {}", i))
-            .spawn(move || {
-                while played.load(Ordering::SeqCst) < 1 {
-                    played.fetch_add(1, Ordering::SeqCst);
-                    let n = net.clone();
-                    let mut board = Board::new();
-                    let b = best.clone();
-                    board.init(i % 2 + 1);
-                    if true {
-                        let mut player = MCTSPlayer::new(n, c_puct, n_playout_a0, false, 4);
-                        let mut best = MCTSPlayer::new(b, c_puct, n_playout_a0, false, 4);
-                        let mut turn = 0;
-                        loop {
-                            let current = board.current_player();
-                            if current == 1 {
-                                let (move_, nums) = player.get_action(&mut board, temp, true, 1);
-                                let mut map = nums
-                                    .iter()
-                                    .enumerate()
-                                    .map(|(k, v)| (k, v))
-                                    .collect::<Vec<(usize, &f32)>>();
-                                map.sort_by(|(_, b), (_, a)| a.partial_cmp(b).unwrap());
-                                board.do_move(move_.try_into().unwrap(), true, true);
-                                player.mcts.update_with_move(move_, false);
-                                best.mcts.update_with_move(move_, false);
-                            } else {
-                                let (move_, nums) = best.get_action(&mut board, temp, true, 1);
-                                let mut map = nums
-                                    .iter()
-                                    .enumerate()
-                                    .map(|(k, v)| (k, v))
-                                    .collect::<Vec<(usize, &f32)>>();
-                                map.sort_by(|(_, b), (_, a)| a.partial_cmp(b).unwrap());
-                                board.do_move(move_.try_into().unwrap(), true, true);
-                                player.mcts.update_with_move(move_, false);
-                                best.mcts.update_with_move(move_, false);
-                            }
-                            let (mut end, mut winner) = board.game_end();
-                            if turn >= 150 && !end {
-                                end = true;
-                                winner = -1;
-                            }
-                            turn += 1;
-                            if end {
-                                if winner == 1 {
-                                    a1.fetch_add(2, std::sync::atomic::Ordering::SeqCst);
-                                    println!("winner is current weight")
-                                } else {
-                                    if winner == 2 {
-                                        println!("winner is older weight")
-                                    } else {
-                                        a1.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                                        println!("draw game")
-                                    }
-                                }
-                                break;
-                            }
-                        }
-                    }
-                }
-            })
-            .unwrap();
-        threads.push(t);
+    fn get_state(&self) -> (Array3<f32>, Vec<f32>, f32) {
+        let state = Array3::from_shape_vec((9, 19, 19), self.state.0.clone()).unwrap();
+        (state, self.state.1.clone(), self.state.2)
     }
-    for t in threads {
-        t.join().unwrap();
-    }
-    a.load(std::sync::atomic::Ordering::SeqCst) as f32 / 2.
+    
 }
-
-fn evaluate_with_pure_mcts_parallel(
-    net: Arc<RwLock<Net>>,
-    temp: f32,
-    c_puct: f32,
-    n_playout_a0: usize,
-    n_playout_pure: usize,
-) -> f32 {
-    let a = Arc::new(AtomicI32::new(0));
-    let mut threads = vec![];
-    //let time = std::time::SystemTime::now();
-    let played = Arc::new(AtomicUsize::new(0));
-    for i in 0..1 {
-        let a1 = a.clone();
-        let net = net.clone();
-        let played = played.clone();
-        let t = std::thread::Builder::new()
-            .name(format!("thread {}", i))
-            .spawn(move || {
-                let mut count = played.load(Ordering::SeqCst);
-                while count < 5 {
-                    played.fetch_add(1, Ordering::SeqCst);
-                    let n = net.clone();
-                    let mut board = Board::new();
-                    board.init((count % 2 + 1).try_into().unwrap());
-                    if true {
-                        let mut player = MCTSPlayer::new(n, c_puct, n_playout_a0, false, 1);
-                        let mut pure = super::mcts_pure_parallel::MCTSPlayer::new(
-                            c_puct,
-                            n_playout_pure,
-                            false,
-                        );
-                        loop {
-                            let current = board.current_player();
-                            if current == 1 {
-                                let (move_, nums) = player.get_action(&mut board, temp, true, 1);
-                                let mut map = nums
-                                    .iter()
-                                    .enumerate()
-                                    .map(|(k, v)| (k, v))
-                                    .collect::<Vec<(usize, &f32)>>();
-                                map.sort_by(|(_, b), (_, a)| a.partial_cmp(b).unwrap());
-                                board.do_move(move_.try_into().unwrap(), true, true);
-                                player.mcts.update_with_move(move_, false);
-                            } else {
-                                let (move_, nums) = pure.get_action(&mut board, temp, true);
-                                let mut map = nums
-                                    .iter()
-                                    .enumerate()
-                                    .map(|(k, v)| (k, v))
-                                    .collect::<Vec<(usize, &f32)>>();
-                                map.sort_by(|(_, b), (_, a)| a.partial_cmp(b).unwrap());
-                                board.do_move(move_.try_into().unwrap(), true, true);
-                                player.mcts.update_with_move(move_, false);
-                            }
-                            let (end, winner) = board.game_end();
-                            if end {
-                                if winner == 1 {
-                                    a1.fetch_add(2, std::sync::atomic::Ordering::SeqCst);
-                                    println!("winner is alpha0")
-                                } else {
-                                    if winner == 2 {
-                                        println!("winner is puremcts")
-                                    } else {
-                                        a1.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                                        println!("draw game")
-                                    }
-                                }
-                                break;
-                            }
-                        }
-                    }
-                    count = played.load(Ordering::SeqCst);
-                }
-            })
-            .unwrap();
-        threads.push(t);
-    }
-    for t in threads {
-        t.join().unwrap();
-    }
-    a.load(std::sync::atomic::Ordering::SeqCst) as f32 / 30.
-}
-
-/*
-fn evaluate_with_pure_mcts(net: Arc<RwLock<Net>>, temp: f32, c_puct: f32, n_playout_a0: usize, n_playout_pure: usize, graph: bool) -> f32 {
-    pyo3::prepare_freethreaded_python();
-    let a = Arc::new(AtomicI32::new(0));
-    let a1 = a.clone();
-    Python::with_gil(|py| {
-        let graphfn = PyModule::from_code(
-            py,
-            r#"
-def graphic(board, players):
-    """Draw the board and show game info"""
-    size = 5
-    player1 = 1
-    player2 = 2
-    #print("Player", player1, "with X".rjust(3))
-    #print("Player", player2, "with O".rjust(3))
-    print()
-    print("    ", end='')
-    for x in range(size):
-        print(str(x).center(6), end='')
-    print('\r\n')
-    for i in range(size):
-        print("{0:4d}".format(i), end='')
-        for j in range(size):
-            loc = i * size + j
-            if players[0] != -1 and players[0] % 25 == loc:
-                print('a'.center(6), end='')
-            elif players[1] != -1 and players[1] % 25 == loc:
-                print('b'.center(6), end='')
-            elif players[2] != -1 and players[2] % 25 == loc:
-                print('A'.center(6), end='')
-            elif players[3] != -1 and players[3] % 25 == loc:
-                print('B'.center(6), end='')
-            else:
-                p = board[loc]
-                print('{}'.format(p).center(6), end='')
-        print('\r\n')
-"#,
-            "graph.py",
-            "graph",
-        )
-        .unwrap()
-        .getattr("graphic")
-        .unwrap();
-        for i in 0..32 {
-            let n = net.clone();
-            let mut board = Board::new();
-            board.init(i % 2);
-            if graph {
-                graphfn.call1((board.states, [board.p1_1, board.p1_2, board.p2_1, board.p2_2])).expect("e");
-            }
-            if true {
-                let mut player = MCTSPlayer::new(n, c_puct, n_playout_a0, false);
-                let mut pure = super::mcts_pure_parallel::MCTSPlayer::new(c_puct, n_playout_pure, false);
-                loop {
-                    let current = board.current_player();
-                    if current == 1 {
-                        let (move_, nums) = player.get_action(&mut board, temp, true, 2);
-                        let mut map = nums
-                            .iter()
-                            .enumerate()
-                            .map(|(k, v)| (k, v))
-                            .collect::<Vec<(usize, &f32)>>();
-                        map.sort_by(|(_, b), (_, a)| a.partial_cmp(b).unwrap());
-                        board.do_move(move_.try_into().unwrap(), true);
-                        if graph {
-                            graphfn.call1((board.states, [board.p1_1, board.p1_2, board.p2_1, board.p2_2])).expect("e");
-                        }
-                    } else {
-                        let (move_, nums) = pure.get_action(&mut board, temp, true);
-                        let mut map = nums
-                            .iter()
-                            .enumerate()
-                            .map(|(k, v)| (k, v))
-                            .collect::<Vec<(usize, &f32)>>();
-                        map.sort_by(|(_, b), (_, a)| a.partial_cmp(b).unwrap());
-                        board.do_move(move_.try_into().unwrap(), true);
-                        if graph {
-                            graphfn.call1((board.states, [board.p1_1, board.p1_2, board.p2_1, board.p2_2])).expect("e");
-                        }
-                    }
-                    let (end, winner) = board.game_end();
-                    if end {
-                        if winner == 1 {
-                            a1.fetch_add(2, std::sync::atomic::Ordering::SeqCst);
-                            println!("winner is alpha0")
-                        }else {
-                            if winner == 2 {
-                                println!("winner is puremcts")
-                            }else {
-                                a1.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                                println!("draw game")
-                            }
-                        }
-                        break;
-                    }
-                }
-            }
-        }
-    });
-    a.load(std::sync::atomic::Ordering::SeqCst) as f32 / 64.
-}
- */
 
 fn start_self_play(
+    progress: Arc<AtomicUsize>,
     net: Arc<RwLock<net::Net>>,
     temp: f32,
     c_puct: f32,
@@ -853,7 +380,7 @@ fn start_self_play(
     let mut board = Board::new();
     let mut i: f32 = 0.0;
     board.init(rand::thread_rng().gen_range::<u16, u16, u16>(1, 3));
-    let mut player = MCTSPlayer::new(net.clone(), c_puct, n_playout, true, 2);
+    let mut player = MCTSPlayer::new(net.clone(), c_puct, n_playout, true, 1);
     let (mut states, mut mcts_probs, mut current_players): (
         Vec<Array3<f32>>,
         Vec<Vec<f32>>,
@@ -872,8 +399,10 @@ fn start_self_play(
         current_players.push(board.current_player().try_into().unwrap());
         //println!("move:{} status:{}", move_, board.status);
         board.do_move(move_.try_into().unwrap(), true, true);
+        progress.fetch_add(1, Ordering::SeqCst);
         let (end, winner) = board.game_end();
         if end {
+            progress.store(150, Ordering::SeqCst);
             let mut winner_z = vec![0.0; current_players.len()];
             let mut i = 0;
             while i < current_players.len() {
@@ -898,7 +427,7 @@ fn start_self_play(
                     //let net = net.read().unwrap();
                     //let (p_loss, v_loss) = net.policy_value_loss(a.clone().into_raw_vec(), b.clone(), c);
                     SingleData {
-                        state: (a, b, c),
+                        state: (a.into_raw_vec(), b, c),
                         loss: 0.,
                         weight: (i as f32 + 2.).log10(),
                     }
@@ -913,18 +442,18 @@ fn get_equi_data(data: Vec<SingleData>) -> Vec<SingleData> {
     let mut result = vec![];
     result.extend(data.clone());
     for v in data {
-        let arr = v.state.1;
+        let arr = v.get_state().1;
         result.push(into_data(
-            (flipud_planes(&v.state.0), flipud_actions(&arr), v.state.2),
+            (flipud_planes(&v.get_state().0), flipud_actions(&arr), v.state.2),
             v.weight,
         ));
         result.push(into_data(
-            (fliplr_planes(&v.state.0), fliplr_actions(&arr), v.state.2),
+            (fliplr_planes(&v.get_state().0), fliplr_actions(&arr), v.state.2),
             v.weight,
         ));
         result.push(into_data(
             (
-                flipud_planes(&fliplr_planes(&v.state.0)),
+                flipud_planes(&fliplr_planes(&v.get_state().0)),
                 flipud_actions(&fliplr_actions(&arr)),
                 v.state.2,
             ),
@@ -936,7 +465,7 @@ fn get_equi_data(data: Vec<SingleData>) -> Vec<SingleData> {
 
 fn into_data(state: (Array3<f32>, Vec<f32>, f32), weight: f32) -> SingleData {
     SingleData {
-        state,
+        state: (state.0.into_raw_vec(), state.1, state.2),
         loss: 0.,
         weight,
     }

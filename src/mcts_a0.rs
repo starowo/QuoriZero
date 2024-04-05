@@ -321,7 +321,11 @@ impl MCTS {
     fn new(net: Arc<RwLock<Net>>, c_puct: f32, n_playout: usize, num_nets: usize) -> MCTS {
         let mut nets = vec![net];
         for _ in 1..num_nets {
-            let cloned_net = NetTrain::new(Some("latest.model")).net.clone();
+            let cloned_net = NetTrain::new(if std::path::Path::new("latest.model").exists() {
+                Some("latest.model")
+            } else {
+                None
+            }).net.clone();
             nets.push(cloned_net);
         }
         let n = MCTS {

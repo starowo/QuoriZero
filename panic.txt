@@ -1,0 +1,98 @@
+thread 'thread 1' panicked at C:\Users\12733\.cargo\registry\src\index.crates.io-6f17d22bba15001f\tch-0.11.0\src\wrappers\tensor_generated.rs:17194:27:
+called `Result::unwrap()` on an `Err` value: Torch("CUDA error: an illegal memory access was encountered
+CUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1.
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+
+Exception raised from c10_cuda_check_implementation at C:\\actions-runner\\_work\\pytorch\\pytorch\\builder\\windows\\pytorch\\c10\\cuda\\CUDAException.cpp:44 (most recent call first):
+00007FF9E323D24200007FF9E323D1E0 c10.dll!c10::Error::Error [<unknown file> @ <unknown line number>]
+00007FF9E323CE8A00007FF9E323CE30 c10.dll!c10::detail::torchCheckFail [<unknown file> @ <unknown line number>]
+00007FF9E377834F00007FF9E3778040 c10_cuda.dll!c10::cuda::c10_cuda_check_implementation [<unknown file> @ <unknown line number>]
+00007FF9E376DFF300007FF9E376DF60 c10_cuda.dll!c10::cuda::memcpy_and_sync [<unknown file> @ <unknown line number>]
+00007FF946EDA6D200007FF946EBBF40 torch_cuda.dll!at::native::slow_conv2d_forward_out_cuda [<unknown file> @ <unknown line number>]
+00007FF93B991CCF00007FF93B991010 torch_cpu.dll!at::native::copy_ignoring_overlaps [<unknown file> @ <unknown line number>]
+00007FF93B990F7D00007FF93B990E70 torch_cpu.dll!at::native::copy_ [<unknown file> @ <unknown line number>]
+00007FF93C3334B500007FF93C333340 torch_cpu.dll!at::_ops::copy_::call [<unknown file> @ <unknown line number>]
+00007FF93BB9B14300007FF93BB9AC80 torch_cpu.dll!at::native::_to_copy [<unknown file> @ <unknown line number>]
+00007FF93C72F39C00007FF93C72E0C0 torch_cpu.dll!at::compositeexplicitautograd::view_copy_symint_outf [<unknown file> @ <unknown line number>]
+00007FF93C70BA9200007FF93C6C8740 torch_cpu.dll!at::compositeexplicitautograd::bucketize_outf [<unknown file> @ <unknown line number>]
+00007FF93BE9608800007FF93BE76E50 torch_cpu.dll!at::TensorMaker::make_tensor [<unknown file> @ <unknown line number>]
+00007FF93BF1599200007FF93BE76E50 torch_cpu.dll!at::TensorMaker::make_tensor [<unknown file> @ <unknown line number>]
+00007FF93BFD455C00007FF93BFD4480 torch_cpu.dll!at::_ops::_to_copy::redispatch [<unknown file> @ <unknown line number>]
+00007FF93C4CAA6200007FF93C4BABB0 torch_cpu.dll!at::_ative::copy_ [<unknown file> @ <unknown line number>]
+00007FF93C4D302200007FF93C4BABB0 torch_cpu.dll!at::_ops::copy_::call [<unknown file> @ <unknown line number>]
+00007FF93BE9608800007FF93BE76E50 torch_cpu.dll!at::TensorMaker::make_tensor [<unknown file> @ <unknown line number>]
+00007FF93BF1599200007FF93BE76E50 torch_cpu.dll!at::TensorMaker::make_tensor [<unknown file> @ <unknown line number>]
+00007FF93BFD455C00007FF93BFD4480 torch_cpu.dll!at::_ops::_to_copy::redispatch [<unknown file> @ <unknown line number>]
+00007FF93D4F517100007FF93D4CC640 torch_cpu.dll!torch::autograd::NotImutograd::bucketize_outf [<unknown file> @ <unknown line number>]
+00007FF93D51B69100007FF93D4FE910 torch_cpu.dll!torch::autograd::GraphRoot::apply [<unknown file> @ <unknown line number>]
+00007FF93BE9608800007FF93BE76E50 torch_cpu.dll!at::TensorMaker::make_tensor [<unknown file> @ <unknown line number>]
+00007FF93BF48B7D00007FF93BE76E50 torch_cpu.dll!at::_ops::_to_copy::call [<unknown file> @ <unknown line number>]
+00007FF93BBA161000007FF93BBA10E0 torch_cpu.dll!at::native::to_den::redispatchply [<unknown file> @ 
+<unknown line number>]
+00007FF93BBA0EE900007FF93BBA0DC0 torch_cpu.dll!at::native::to [<unknown file> @ <unknown line number>]
+00007FF93C8E0D2800007FF93C8DA890 torch_cpu.dll!at::compositeimplicitautograd::where [<unknown file> @ <unknown line number>]
+00007FF93C8C9F2E00007FF93C880BF0 torch_cpu.dll!at::compositeimplicitautograd::broadcast_to_symint [<unknown file> @ <unknown line number>]
+00007FF93C019E8700007FF93C007950 torch_cpu.dll!at::_ops::zaker::make_tensor [<unknown file> @ <unknown line number>]
+00007FF93C0FA75600007FF93C0FA4E0 torch_cpu.dll!at::_ops::to_dtype_layout::call [<unknown file> @ <unknown line number>]
+00007FF93B68336F00007FF93B6831C0 torch_cpu.dll!at::Tensor::to [<unknown file> @ <unknownthread ' line number>]
+00007FF7551FC1B000007FF7551FC120 quorizero.exe!atg_to [<unknown file> @ <unknown line number>]
+00007FF7551B853800007FF7551B84F0 quorizero.exe!ZN3tch6tensor47_$LT$impl$u20$tch..wrappers..tensor..Tensor$GT$9to_device17h998f9bca4e4838c8E [<unknown file> @ <unknown line number>]
+00007FF75514108400007FF755141000 quorizero.exe!ZN3tch6tensor7convert111_$LT$impl$u20$core..convert..From$LT$tch..wrappers..tensor..Tensor$GT$$u20$for$u20$alloc..vec..Vec$LT$T$GT$$GT$4from17h4a010252d1aa48e8E [<unknown file> @ <unknown line number>]
+00007FF75515223700007FF7551520E0 quorizero.exe!ZN9quorizero3net3Net12policy_value17h01e1cdd5c8ee3d10E [<unknown file> @ <unknown line number>]
+00007FF75514675400007FF755146020 quorizero.exe!ZN9quorizero7mcts_a07playout17h8fea7d9e106831c9E [<unknown file> @ <unknown line number>]
+00007FF75518461E00007FF755184400 quorizero.exe!ZN3std10sys_common9backtrace28__rust_begin_short_backtrace17hb17b63223b5db783E [<unknown file> @ <unknown line number>]
+00007FF75516D66400007FF75516D500 quorizero.exe!ZN44_$LT$$RF$T$u20$as$u20$core..fmt..Display$GT$3fmt17h3c056c9b90d42936E [<unknown file> @ <unknown line number>]
+00007FF7551D512C00007FF7551D50E0 quorizero.exe!std::sys::pal::windows::thread::impl$0::new::thread_start [/rustc/7cf61ebde7b22796c69757901dd346d0fe70bd97/library\\std\\src\\sys\\pal\\windows\\thread.rs @ 58]
+00007FFA223B734400007FFA223B7330 KERNEL32.DLL!BaseThreadInitThunk [<unknown file> @ <unknown line number>]
+00007FFA240026B100007FFA24002690 ntdll.dll!RtlUserThreadStart [<unknown file> @ <unknown line number>]
+")thread 0
+' panicked at note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+C:\Users\12733\.cargo\registry\src\index.crates.io-6f17d22bba15001f\tch-0.11.0\src\wrappers\tensor_generated.rs:17194:27:
+called `Result::unwrap()` on an `Err` value: Torch("CUDA error: an illegal memory access was encountered
+CUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1.
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+
+Exception raised from c10_cuda_check_implementation at C:\\actions-runner\\_work\\pytorch\\pytorch\\builder\\windows\\pytorch\\c10\\cuda\\CUDAException.cpp:44 (most recent call first):
+00007FF9E323D24200007FF9E323D1E0 c10.dll!c10::Error::Error [<unknown file> @ <unknown line number>]
+00007FF9E323CE8A00007FF9E323CE30 c10.dll!c10::detail::torchCheckFail [<unknown file> @ <unknown line number>]
+00007FF9E377834F00007FF9E3778040 c10_cuda.dll!c10::cuda::c10_cuda_check_implementation [<unknown file> @ <unknown line number>]
+00007FF9E376DFF300007FF9E376DF60 c10_cuda.dll!c10::cuda::memcpy_and_sync [<unknown file> @ <unknown line number>]
+00007FF946EDA6D200007FF946EBBF40 torch_cuda.dll!at::native::slow_conv2d_forward_out_cuda [<unknown file> @ <unknown line number>]
+00007FF93B991CCF00007FF93B991010 torch_cpu.dll!at::native::copopy::redispatch [<unknown file> @ <unknown line number>]
+00007FF93B990F7D00007FF93B990E70 torch_cpu.dll!at::native::copy_ [<unknown file> @ <unknown line number>]
+00007FF93C3334B500007FF93C333340 torch_cpu.dll!at::_ops::copy_::call [<unknown file> @ <unknown line number>]
+00007FF93BB9B14300007FF93BB9AC80 torch_cpu.dll!at::native::_to_copy [<unknown file> @ <unknown line number>]
+00007FF93C72F39C00007FF93C72E0C0 torch_cpu.dll!at::compositeexplicitautograch [<unknown file> @ <unknown line number>]
+00007FF93C70BA9200007FF93C6C8740 torch_cpu.dll!at::compositeexplicitautograd::bucketize_outf [<unknown file> @ <unknown line number>]
+00007FF93BE9608800007FF93BE76E50 torch_cpu.dll!at::TensorMaker::make_tensor [<unknown file> @ <unknown line number>]
+00007FF93BF1599200007FF93BE76E50 torch_cpu.dll!at::_ops::_to_copy::call [<unknown file> @ <unknown line number>]
+00007FF93BFD455C00007FF93BFD4480 torch_cpu.dll!at::_ops::_to_copy::redispatch [<unknown file> @ <unknown line number>]
+00007FF93C4CAA6200007FF93C4BABB0 torch_cpu.dll!at::_ops::view_as_retautograd::wheretize_outf [<unknown file> @ <unknown line number>]
+00007FF93C4D302200007FF93C4BABB0 torch_cpu.dll!at::_ops::view_as_citautograd::broaetize_outf [<unknown file> @ <unknown line number>]
+00007FF93BE9608800007FF93BE76E50 torch_cpu.dll!at::TensorMaker::make_tensor [<unknown file> @ <unknown line number>]
+00007FF93BF1599200007FF93BE76E50 torch_cpu.dll!at::TensorMaker::make_tensor [<unknown file> @ <unknown line number>]
+00007FF93BFD455C00007FF93BFD4480 torch_cpu.dll!at::_ops::_to_copy::redispatch [<unknown file> @ <unknown line number>]
+00007FF93D4F517100007FF93D4CC640 torch_cpu.dll!torch::autograd::NotImplemented::~NotImplemented [<unknown file> @ <unknown line number>]
+00007FF93D51B69100007FF93D4FE910 torch_cpu.dll!torch::autograd::GraphRoot::apply [<unknown file> @ <unknown line number>]
+00007FF93BE9608800007FF93BE76E50 torch_cpu.dll!at::TensorMaker::make_tensor [<unknown file> @ <unknown line number>]
+00007FF93BF48B7D00007FF93BF48930 torch_cpu.dll!at::_ops::_to_copy::call [<unknown file> @ <unknown line number>]
+00007FF93BBA161000007FF93BBA10E0 torch_cpu.dll!at::native::to_dense_backward [<unknown file> @ <unknown line number>]
+00007FF93BBA0EE900007FF93BBA0DC0 torch_cpu.dll!at::native::to [<unknown file> @ <unknown line number>]
+00007FF93C8E0D2800007FF93C8DA890 torch_cpu.dll!at::compositeimplicitautograd::where [<unknown file> @ <unknown line number>]
+00007FF93C8C9F2E00007FF93C880BF0 torch_cpu.dll!at::compositeimplicitautograd::broadcast_to_symint [<unknown file> @ <unknown line number>]
+00007FF93C019E8700007FF93C007950 torch_cpu.dll!at::_ops::zeros_out::redispatch [<unknown file> @ <unknown line number>]
+00007FF93C0FA75600007FF93C0FA4E0 torch_cpu.dll!at::_ops::to_dtype_layout::call [<unknown file> @ <unknown line number>]
+00007FF93B68336F00007FF93B6831C0 torch_cpu.dll!at::Tensor::to [<unknown file> @ <unknown line number>]
+00007FF7551FC1B000007FF7551FC120 quorizero.exe!atg_to [<unknown file> @ <unknown line number>]
+00007FF7551B853800007FF7551B84F0 quorizero.exe!ZN3tch6tensor47_$LT$impl$u20$tch..wrappers..tensor..Tensor$GT$9to_device17h998f9bca4e4838c8E [<unknown file> @ <unknown line number>]
+00007FF75514108400007FF755141000 quorizero.exe!ZN3tch6tensor7convert111_$LT$impl$u20$core..convert..From$LT$tch..wrappers..tensor..Tensor$GT$$u20$for$u20$alloc..vec..Vec$LT$T$GT$$GT$4from17h4a010252d1aa48e8E [<unknown file> @ <unknown line number>]
+00007FF75515223700007FF7551520E0 quorizero.exe!ZN9quorizero3net3Net12policy_value17h01e1cdd5c8ee3d10E [<unknown file> @ <unknown line number>]
+00007FF75514675400007FF755146020 quorizero.exe!ZN9quorizero7mcts_a07playout17h8fea7d9e106831c9E [<unknown file> @ <unknown line number>]
+00007FF75518461E00007FF755184400 quorizero.exe!ZN3std10sys_common9backtrace28__rust_begin_short_backtrace17hb17b63223b5db783E [<unknown file> @ <unknown line number>]
+00007FF75516D66400007FF75516D500 quorizero.exe!ZN44_$LT$$RF$T$u20$as$u20$core..fmt..Display$GT$3fmt17h3c056c9b90d42936E [<unknown file> @ <unknown line number>]
+00007FF7551D512C00007FF7551D50E0 quorizero.exe!std::sys::pal::windows::thread::impl$0::new::thread_start [/rustc/7cf61ebde7b22796c69757901dd346d0fe70bd97/library\\std\\src\\sys\\pal\\windows\\thread.rs @ 58]
+00007FFA223B734400007FFA223B7330 KERNEL32.DLL!BaseThreadInitThunk [<unknown file> @ <unknown line number>]
+00007FFA240026B100007FFA24002690 ntdll.dll!RtlUserThreadStart [<unknown file> @ <unknown line number>]
+")

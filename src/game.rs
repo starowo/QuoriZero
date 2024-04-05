@@ -36,7 +36,7 @@ impl Board {
     }
 
     pub fn current_state(&self) -> Array3<f32> {
-        let mut square_state = Array::zeros((8, 17, 17));
+        let mut square_state = Array::zeros((9, 17, 17));
         for i in 0..17 {
             for j in 0..17 {
                 if self.state[i][j] == self.status as u8 {
@@ -68,7 +68,7 @@ impl Board {
             let y = path2[i] as usize / 9 * 2;
             square_state[[if self.status == 2 {5} else {6}, x, y]] = 1.0;
         }
-/*
+
         for i in 0..self.walls[0] as usize {
             for j in 0..8 {
                 square_state[[7, j, i]] = 1.0;
@@ -79,14 +79,14 @@ impl Board {
                 square_state[[7, j, i]] = 1.0;
             }
         }
-        */
+        
         if self.status == 1 {
             for i in 0..17 {
-                square_state[[7, 16, i]] = 1.0;
+                square_state[[8, 16, i]] = 1.0;
             }
         } else {
             for i in 0..17 {
-                square_state[[7, 0, i]] = 1.0;
+                square_state[[8, 0, i]] = 1.0;
             }
         }
         square_state
