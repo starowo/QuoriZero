@@ -73,7 +73,7 @@ impl TrainPipeline {
     fn new(http_address: String) -> Self {
         Self {
             http_address,
-            timestamp: 0,
+            timestamp: 1712350296604,
             net: net::NetTrain::new(if std::path::Path::new("latest.model").exists() {
                 Some("latest.model")
             } else {
