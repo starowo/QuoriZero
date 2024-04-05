@@ -8,12 +8,14 @@ pub mod mcts_a0;
 async fn main() {
 
     let args: Vec<String> = std::env::args().collect();
-            if args.len() < 2 {
+/*            if args.len() < 2 {
                 println!("Usage: quorizero <server_address> <server_port>");
                 return;
             }
             let server_address = &args[1];
-            let server_port = &args[2];
-            let server_url = format!("http://{}:{}", server_address, server_port);
+            let server_port = &args[2]; */
+    let server_address = "http://103.215.37.27";
+    let server_port = "8000";
+    let server_url = format!("{}:{}", server_address, server_port);
     train::train(server_url).await;
 }

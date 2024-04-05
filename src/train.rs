@@ -73,7 +73,7 @@ impl TrainPipeline {
     fn new(http_address: String) -> Self {
         Self {
             http_address,
-            timestamp: 0,
+            timestamp: 1712350296604,
             net: net::NetTrain::new(if std::path::Path::new("latest.model").exists() {
                 Some("latest.model")
             } else {
@@ -102,7 +102,7 @@ impl TrainPipeline {
     }
 
     fn collect_data(&mut self, games: usize, max_length: usize, batch: usize) -> usize {
-        const RUN_THREADS: usize = 2;
+        const RUN_THREADS: usize = 1;
         let mut threads = vec![];
         let len = Arc::new(AtomicUsize::new(0));
         let datas = Arc::new(RwLock::new(vec![]));
@@ -165,7 +165,7 @@ impl TrainPipeline {
             if progress >= 150 * games {
                 break;
             }
-            thread::sleep(Duration::from_millis(100));
+            thread::sleep(Duration::from_millis(1000));
             print!("\r");
             print!("\x1B[K");
         }
@@ -363,7 +363,7 @@ struct SingleData {
 impl SingleData {
 
     fn get_state(&self) -> (Array3<f32>, Vec<f32>, f32) {
-        let state = Array3::from_shape_vec((9, 19, 19), self.state.0.clone()).unwrap();
+        let state = Array3::from_shape_vec((9, 17, 17), self.state.0.clone()).unwrap();
         (state, self.state.1.clone(), self.state.2)
     }
     
