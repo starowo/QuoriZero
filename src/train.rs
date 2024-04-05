@@ -275,38 +275,6 @@ impl TrainPipeline {
         loop {
             //let len = self.collect_data(3, max(10, batch / 10), batch);
 
-            let client = Client::new();
-            let res = client.get(&format!("{}/getmodel", self.http_address))
-                .body(self.timestamp.to_string())
-                .send()
-                .await
-                .unwrap();
-
-            match res.status().as_u16() {
-                200 => {
-                    // remove the old model
-                    let _ = std::fs::remove_file("latest.model");
-                    let mut file = std::fs::File::create("latest.model").unwrap();
-                    let content = res.bytes().await.unwrap();
-                    copy(&mut content.as_ref(), &mut file).unwrap();
-                    println!("model updated")
-                }
-                305 => {
-                }
-                _ => {
-                    println!("error: {}", res.status().as_u16());
-                }
-            }
-
-            let res = client.get(&format!("{}/gettimestamp", self.http_address))
-                .send()
-                .await
-                .unwrap();
-
-            let content = res.text().await.unwrap();
-            println!("timestamp: {}", content);
-            self.timestamp = content.parse().unwrap();
-
             let len = self.collect_data(8, 99999, batch);
             println!(
                 "batch {}, episode_len:{}, buffer_len:{}",
@@ -316,7 +284,7 @@ impl TrainPipeline {
             );
             self.get_data_from_server().await;
             if self.data_buffer.len() >= BATCH_SIZE * 10 {
-                self.lr = if batch < 5 {0.1} else if batch < 100 {0.02} else if batch < 500 {0.002} else {0.0002};
+                self.lr = if batch < 5 {0.02} else if batch < 100 {0.005} else if batch < 500 {0.002} else {0.0002};
                 self.train_step();
                 self.net.save("latest.model", format!("{}/model", self.http_address)).await;
                 batch += 1;
