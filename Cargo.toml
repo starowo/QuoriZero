@@ -11,7 +11,11 @@ ndarray = "0.15.3"
 #numpy = "0.18"
 #cpython = "0.7"
 rand ="0.6.5"
+tokio = { version = "1.37.0", features = ["full"] }
 tch = "0.13.0"
+serde = "1.0"
+serde_json = "1.0"
+reqwest = { version = "0.11", features = ["json"] }
 websocket = "0.24"
 
 [dependencies.uuid]

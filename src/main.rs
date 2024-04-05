@@ -10,12 +10,25 @@ use std::sync::mpsc;
 use websocket::sync::Server;
 use websocket::OwnedMessage;
 
-fn main() {
+#[tokio::main]
+async fn main() {
+
+    
+
     let server = Server::bind("127.0.0.1:8080").unwrap();
 
     for request in server.filter_map(Result::ok) {
         // Spawn a new thread for each connection
         thread::spawn(move || {
+            // read from args
+            let args: Vec<String> = std::env::args().collect();
+            if args.len() < 2 {
+                println!("Usage: quorizero <server_address> <server_port>");
+                return;
+            }
+            let server_address = &args[1];
+            let server_port = &args[2];
+            let server_url = format!("http://{}:{}/", server_address, server_port);
             if !request.protocols().contains(&"rust-websocket".to_string()) {
                 request.reject().unwrap();
                 return;
@@ -64,7 +77,7 @@ fn main() {
                         // Example: sending back an echo message
                         //let _ = tx.send(OwnedMessage::Text(txt));
                         if txt == "train" {
-                            train::train(Some(tx.clone()));
+                            train::train(server_url.clone(), Some(tx.clone()));
                         }
                         if txt == "humanplay" {
                             train::play(Some(tx.clone()), in_rx);
