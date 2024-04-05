@@ -35,7 +35,7 @@ pub fn play(tx: Option<Sender<OwnedMessage>>, rx: Receiver<usize>) {
             net::Net::new(Some("latest.model")),
             1e-4,
             4.0,
-            3000,
+            6000,
             true,
             2,
             2,
@@ -626,7 +626,7 @@ fn humanplay<'a>(
                 let p = rx.recv();
                 let p = p.unwrap();
                 board.do_move(p.try_into().unwrap(), true, false);
-                player.mcts.update_with_move(p.try_into().unwrap(), false);
+                player.mcts.update_with_move(p.try_into().unwrap(), true);
             }
             let (end, winner) = board.game_end();
             if end {
