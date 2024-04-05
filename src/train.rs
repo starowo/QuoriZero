@@ -102,7 +102,7 @@ impl TrainPipeline {
     }
 
     fn collect_data(&mut self, games: usize, max_length: usize, batch: usize) -> usize {
-        const RUN_THREADS: usize = 1;
+        const RUN_THREADS: usize = 2;
         let mut threads = vec![];
         let len = Arc::new(AtomicUsize::new(0));
         let datas = Arc::new(RwLock::new(vec![]));
