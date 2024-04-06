@@ -322,7 +322,7 @@ impl TrainPipeline {
                 println!("timestamp: {}", content);
                 timestamp.store(content.parse().unwrap(), Ordering::SeqCst);
             }
-            let len = self.collect_data(8, 99999, batch);
+            let len = self.collect_data(16, 99999, batch);
             println!(
                 "batch {}, episode_len:{}, buffer_len:{}",
                 batch,
