@@ -315,17 +315,33 @@ impl TrainPipeline {
             if self.data_buffer.len() >= 0 {
                 //self.train_step();
                 self.send_data_to_server().await;
+                self.data_buffer.clear();
             }
         }
     }
 
     async fn send_data_to_server(&mut self) {
-        let client = Client::new();
-        let data = serde_json::to_string(&self.data_buffer).unwrap();
-        let _ = client.post(&format!("{}/train", self.http_address))
-            .body(data)
-            .send()
-            .await;
+        loop {
+            let client = Client::new();
+            let data = serde_json::to_string(&self.data_buffer).unwrap();
+            let resp = client.post(&format!("{}/train", self.http_address))
+                .body(data)
+                .send()
+                .await;
+            match resp {
+                Ok(resp) => {
+                    if resp.status().as_u16() == 200 {
+                        println!("data sent to server");
+                        break;
+                    } else {
+                        println!("error: {}", resp.status().as_u16());
+                    }
+                }
+                Err(e) => {
+                    println!("error: {}", e);
+                }
+            }
+        }
     }
 }
 fn has_duplicate_values(vec: Vec<usize>) -> bool {
