@@ -4,6 +4,8 @@ use rand::seq::SliceRandom;
 use rand::Rng;
 use reqwest::Client;
 use serde::Deserialize;
+use tokio::sync::Mutex;
+use uuid::timestamp;
 use std::collections::HashSet;
 use std::io;
 use std::io::copy;
@@ -22,15 +24,20 @@ use serde::Serialize;
 pub async fn train(http_address: String, num_threads: usize, num_processes: usize) {
     //humanplay(net::Net::new(Some("skating_best.model")), 1e-4, 2., 4000, true, 1, 1);
     //ai_suggestion(net::Net::new(Some("skating_best.model")), 1e-4, 2.0, 4000, true, 0);
-    let timestamp = Arc::new(AtomicUsize::new(0));
+    let lock = Arc::new(Mutex::new(0));
+    let mut threads = vec![];
     for _i in 0..num_processes {
         let http_address = http_address.clone();
-        let timestamp = timestamp.clone();
         let num_threads = num_threads.clone();
-        tokio::spawn(async move {
-            let mut pipeline = TrainPipeline::new(http_address, num_threads, timestamp);
+        let lock = lock.clone();
+        let thread = tokio::spawn(async move {
+            let mut pipeline = TrainPipeline::new(http_address, num_threads, lock);
             pipeline.train().await;
         });
+        threads.push(thread);
+    }
+    for thread in threads {
+        thread.await.unwrap();
     }
     //weight_comparation(Arc::new(net::Net::new(Some("santorini_best copy.model")).into()), 1e-4, 5., 400);
     //evaluate_with_pure_mcts(Arc::new(net::Net::new(Some("skating_best.model")).into()), 1e-4, 5.0, 400, 50000, false);
@@ -46,7 +53,7 @@ const SELFPLAY_CPUCT: f32 = 2.0;
 struct TrainPipeline {
     num_threads: usize,
     http_address: String,
-    timestamp: Arc<AtomicUsize>,
+    timestamp: Arc<Mutex<usize>>,
     net: net::NetTrain,
     data_buffer: Vec<SingleData>,
     kl_targ: f32,
@@ -57,11 +64,11 @@ struct TrainPipeline {
 }
 
 impl TrainPipeline {
-    fn new(http_address: String, num_threads: usize, timestamp: Arc<AtomicUsize>) -> Self {
+    fn new(http_address: String, num_threads: usize, lock: Arc<Mutex<usize>>) -> Self {
         Self {
             num_threads,
             http_address,
-            timestamp,
+            timestamp: lock,
             net: net::NetTrain::new(if std::path::Path::new("latest.model").exists() {
                 Some("latest.model")
             } else {
@@ -279,41 +286,42 @@ impl TrainPipeline {
         loop {
             batch += 1;
             //let len = self.collect_data(3, max(10, batch / 10), batch);
+            {
+                let mut timestamp = self.timestamp.lock().await;
+                let client = Client::new();
+                let res = client.get(&format!("{}/getmodel", self.http_address))
+                    .body(timestamp.to_string())
+                    .send()
+                    .await
+                    .unwrap();
 
-            let client = Client::new();
-            let res = client.get(&format!("{}/getmodel", self.http_address))
-                .body(self.timestamp.load(Ordering::SeqCst).to_string())
-                .send()
-                .await
-                .unwrap();
+                match res.status().as_u16() {
+                    200 => {
+                        // remove the old model
+                        let _ = std::fs::remove_file("latest.model");
+                        let mut file = std::fs::File::create("latest.model").unwrap();
+                        let content = res.bytes().await.unwrap();
+                        copy(&mut content.as_ref(), &mut file).unwrap();
+                        println!("model updated");
+                        self.net = net::NetTrain::new(Some("latest.model"));
+                    }
+                    304 => {
+                        println!("model already up to date");
+                    }
+                    _ => {
+                        println!("error: {}", res.status().as_u16());
+                    }
+                }
 
-            match res.status().as_u16() {
-                200 => {
-                    // remove the old model
-                    let _ = std::fs::remove_file("latest.model");
-                    let mut file = std::fs::File::create("latest.model").unwrap();
-                    let content = res.bytes().await.unwrap();
-                    copy(&mut content.as_ref(), &mut file).unwrap();
-                    println!("model updated");
-                    self.net = net::NetTrain::new(Some("latest.model"));
-                }
-                304 => {
-                    println!("model already up to date");
-                }
-                _ => {
-                    println!("error: {}", res.status().as_u16());
-                }
+                let res = client.get(&format!("{}/gettimestamp", self.http_address))
+                    .send()
+                    .await
+                    .unwrap();
+
+                let content = res.text().await.unwrap();
+                println!("timestamp: {}", content);
+                *timestamp = content.parse().unwrap();
             }
-
-            let res = client.get(&format!("{}/gettimestamp", self.http_address))
-                .send()
-                .await
-                .unwrap();
-
-            let content = res.text().await.unwrap();
-            println!("timestamp: {}", content);
-            self.timestamp.store(content.parse().unwrap(), Ordering::SeqCst);
-
             let len = self.collect_data(8, 99999, batch);
             println!(
                 "batch {}, episode_len:{}, buffer_len:{}",
