@@ -19,10 +19,19 @@ use super::mcts_a0::MCTSPlayer;
 use super::net::{self};
 use serde::Serialize;
 
-pub async fn train(http_address: String, num_threads: usize) {
+pub async fn train(http_address: String, num_threads: usize, num_processes: usize) {
     //humanplay(net::Net::new(Some("skating_best.model")), 1e-4, 2., 4000, true, 1, 1);
     //ai_suggestion(net::Net::new(Some("skating_best.model")), 1e-4, 2.0, 4000, true, 0);
-    TrainPipeline::new(http_address, num_threads).train().await;
+    let timestamp = Arc::new(AtomicUsize::new(0));
+    for _i in 0..num_processes {
+        let http_address = http_address.clone();
+        let timestamp = timestamp.clone();
+        let num_threads = num_threads.clone();
+        tokio::spawn(async move {
+            let mut pipeline = TrainPipeline::new(http_address, num_threads, timestamp);
+            pipeline.train().await;
+        });
+    }
     //weight_comparation(Arc::new(net::Net::new(Some("santorini_best copy.model")).into()), 1e-4, 5., 400);
     //evaluate_with_pure_mcts(Arc::new(net::Net::new(Some("skating_best.model")).into()), 1e-4, 5.0, 400, 50000, false);
     //test()
@@ -37,7 +46,7 @@ const SELFPLAY_CPUCT: f32 = 2.0;
 struct TrainPipeline {
     num_threads: usize,
     http_address: String,
-    timestamp: u64,
+    timestamp: Arc<AtomicUsize>,
     net: net::NetTrain,
     data_buffer: Vec<SingleData>,
     kl_targ: f32,
@@ -48,11 +57,11 @@ struct TrainPipeline {
 }
 
 impl TrainPipeline {
-    fn new(http_address: String, num_threads: usize) -> Self {
+    fn new(http_address: String, num_threads: usize, timestamp: Arc<AtomicUsize>) -> Self {
         Self {
             num_threads,
             http_address,
-            timestamp: 1712365717643,
+            timestamp,
             net: net::NetTrain::new(if std::path::Path::new("latest.model").exists() {
                 Some("latest.model")
             } else {
@@ -273,7 +282,7 @@ impl TrainPipeline {
 
             let client = Client::new();
             let res = client.get(&format!("{}/getmodel", self.http_address))
-                .body(self.timestamp.to_string())
+                .body(self.timestamp.load(Ordering::SeqCst).to_string())
                 .send()
                 .await
                 .unwrap();
@@ -303,7 +312,7 @@ impl TrainPipeline {
 
             let content = res.text().await.unwrap();
             println!("timestamp: {}", content);
-            self.timestamp = content.parse().unwrap();
+            self.timestamp.store(content.parse().unwrap(), Ordering::SeqCst);
 
             let len = self.collect_data(8, 99999, batch);
             println!(
