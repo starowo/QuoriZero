@@ -8,56 +8,34 @@ use std::collections::HashSet;
 use std::io;
 use std::io::copy;
 use std::io::Write;
-use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
-use std::sync::mpsc::{Receiver, Sender};
-use std::sync::{mpsc, RwLock};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::RwLock;
 use std::time::Duration;
 use std::{sync::Arc, thread};
 use tch::{Device, Tensor};
 
-use super::mcts_pure_parallel;
-
 use super::game::Board;
 use super::mcts_a0::MCTSPlayer;
-use super::net::{self, Net};
+use super::net::{self};
 use serde::Serialize;
 
-pub async fn train(http_address: String) {
+pub async fn train(http_address: String, num_threads: usize) {
     //humanplay(net::Net::new(Some("skating_best.model")), 1e-4, 2., 4000, true, 1, 1);
     //ai_suggestion(net::Net::new(Some("skating_best.model")), 1e-4, 2.0, 4000, true, 0);
-    TrainPipeline::new(http_address).train().await;
+    TrainPipeline::new(http_address, num_threads).train().await;
     //weight_comparation(Arc::new(net::Net::new(Some("santorini_best copy.model")).into()), 1e-4, 5., 400);
     //evaluate_with_pure_mcts(Arc::new(net::Net::new(Some("skating_best.model")).into()), 1e-4, 5.0, 400, 50000, false);
     //test()
 }
 
-fn test() {
-    /*
-    let tensor = Tensor::of_slice(&size);
-    let parts = tensor.split_with_sizes(&[81, 1], 0);
-    let (p, v): (&Vec<f64>, &Tensor) = (&parts[0].exp().into(), &parts[1]);
-    let mut probs = vec![];
-    for i in 0..81 {
-        if available.contains(&i) {
-            probs.push(p[i]);
-        }else {
-            probs.push(0.);
-        }
-    }
-    let value: f64 = v.into();
-    println!("{:?}, {}", probs, value)
-     */
-    let mut board = Board::new();
-    board.init(0);
-}
 pub const BATCH_SIZE: usize = 512;
-const BUFFER_SIZE: usize = 10000;
 
 const SELFPLAY_PLAYOUT: usize = 800;
 const SELFPLAY_TEMP: f32 = 1.0;
 const SELFPLAY_CPUCT: f32 = 2.0;
 
 struct TrainPipeline {
+    num_threads: usize,
     http_address: String,
     timestamp: u64,
     net: net::NetTrain,
@@ -70,10 +48,11 @@ struct TrainPipeline {
 }
 
 impl TrainPipeline {
-    fn new(http_address: String) -> Self {
+    fn new(http_address: String, num_threads: usize) -> Self {
         Self {
+            num_threads,
             http_address,
-            timestamp: 1712350296604,
+            timestamp: 1712365717643,
             net: net::NetTrain::new(if std::path::Path::new("latest.model").exists() {
                 Some("latest.model")
             } else {
@@ -102,7 +81,6 @@ impl TrainPipeline {
     }
 
     fn collect_data(&mut self, games: usize, max_length: usize, batch: usize) -> usize {
-        const RUN_THREADS: usize = 2;
         let mut threads = vec![];
         let len = Arc::new(AtomicUsize::new(0));
         let datas = Arc::new(RwLock::new(vec![]));
@@ -110,7 +88,7 @@ impl TrainPipeline {
         let progess: Vec<Arc<AtomicUsize>> = (0..games)
             .map(|_| Arc::new(AtomicUsize::new(0)))
             .collect();
-        for i in 0..RUN_THREADS {
+        for i in 0..self.num_threads {
             let datas = datas.clone();
             let net = if i == 0  {self.net.net.clone()} else {net::NetTrain::new(if std::path::Path::new("latest.model").exists() {
                 Some("latest.model")
@@ -307,9 +285,11 @@ impl TrainPipeline {
                     let mut file = std::fs::File::create("latest.model").unwrap();
                     let content = res.bytes().await.unwrap();
                     copy(&mut content.as_ref(), &mut file).unwrap();
-                    println!("model updated")
+                    println!("model updated");
+                    self.net = net::NetTrain::new(Some("latest.model"));
                 }
-                305 => {
+                304 => {
+                    println!("model already up to date");
                 }
                 _ => {
                     println!("error: {}", res.status().as_u16());
@@ -342,11 +322,10 @@ impl TrainPipeline {
     async fn send_data_to_server(&mut self) {
         let client = Client::new();
         let data = serde_json::to_string(&self.data_buffer).unwrap();
-        let res = client.post(&format!("{}/train", self.http_address))
+        let _ = client.post(&format!("{}/train", self.http_address))
             .body(data)
             .send()
-            .await
-            .unwrap();
+            .await;
     }
 }
 fn has_duplicate_values(vec: Vec<usize>) -> bool {
