@@ -13,7 +13,7 @@ use websocket::OwnedMessage;
 #[tokio::main]
 async fn main() {
 
-    train::train("http://103.215.37.27:8000".to_string(), None).await;
+    //train::train("http://103.215.37.27:8000".to_string(), None).await;
 
     let server = Server::bind("127.0.0.1:8080").unwrap();
 

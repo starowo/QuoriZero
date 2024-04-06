@@ -40,7 +40,7 @@ pub fn play(tx: Option<Sender<OwnedMessage>>, rx: Receiver<usize>) {
             net::Net::new(Some("latest.model")),
             1e-4,
             4.0,
-            6000,
+            3000,
             true,
             1,
             2,
