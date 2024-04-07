@@ -15,6 +15,8 @@ use std::time::Duration;
 use std::{sync::Arc, thread};
 use tch::{Device, Tensor};
 
+use crate::net::NetTrain;
+
 use super::mcts_pure_parallel;
 
 use super::game::Board;
@@ -271,7 +273,7 @@ impl TrainPipeline {
 
     async fn train(&mut self) {
         self.net.save("latest.model", format!("{}/model", self.http_address)).await;
-        let mut batch: usize = 60;
+        let mut batch: usize = 100;
         loop {
             //let len = self.collect_data(3, max(10, batch / 10), batch);
 
@@ -364,8 +366,8 @@ fn weight_comparation(
     let best = Arc::new(RwLock::new(Net::new(Some("best.model"))));
     for i in 0..2 {
         let a1 = a.clone();
-        let net = net.clone();
-        let best = best.clone();
+        let net = if i == 0 {net.clone()} else {NetTrain::new(Some("latest.model")).net.clone()};
+        let best = if i == 0 {best.clone()} else {NetTrain::new(Some("best.model")).net.clone()};
         let played = played.clone();
         let t = std::thread::Builder::new()
             .name(format!("thread {}", i))
@@ -377,8 +379,8 @@ fn weight_comparation(
                     let b = best.clone();
                     board.init(i % 2 + 1);
                     if true {
-                        let mut player = MCTSPlayer::new(n, c_puct, n_playout_a0, false, 1);
-                        let mut best = MCTSPlayer::new(b, c_puct, n_playout_a0, false, 1);
+                        let mut player = MCTSPlayer::new(n, c_puct, n_playout_a0, false, 2);
+                        let mut best = MCTSPlayer::new(b, c_puct, n_playout_a0, false, 2);
                         let mut turn = 0;
                         loop {
                             let current = board.current_player();
