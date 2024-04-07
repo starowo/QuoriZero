@@ -434,7 +434,7 @@ fn humanplay<'a>(
     let mut board = Board::new(tx.clone());
     board.init(start);
     if a0 {
-        let mut player = MCTSPlayer::new(Arc::new(net.into()), c_puct, n_playout, false, 2);
+        let mut player = MCTSPlayer::new(Arc::new(net.into()), c_puct, n_playout, false, 4);
         let mut history = vec![];
         loop {
             history.push(board.clone());
