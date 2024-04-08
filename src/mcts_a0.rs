@@ -64,8 +64,12 @@ impl TreeNode {
     fn get_value(&self, u: f32) -> f32 {
         if self.vloss > 0. && self.n_visits > 0 {
             (self.q * self.n_visits as f32 - self.vloss * C_LOSS) / self.n_visits as f32 + u
-        }else {
+        } else if self.vloss > 0. {
             self.q - self.vloss * C_LOSS + u
+        } else if self.n_visits > 0 {
+            (self.q * self.n_visits as f32) / self.n_visits as f32 + u
+        } else {
+            self.q + u
         }
     }
 
@@ -107,7 +111,7 @@ fn expand(node_rc: Arc<RwLock<TreeNode>>, action_priors: &Vec<(i32, f32)>, selfp
     //println!("{} writing {} at point 1", std::thread::current().name().unwrap(), node.id);
     // alpha of dirichlet noise; related to sensible actions num
     // for 24 actions, 0.8 is appropriate
-    let alpha = 0.1;
+    let alpha = 0.03 * 361. / action_priors.len() as f64;
     let len = action_priors.len();
         for (action, prob) in action_priors.iter() {
             if !node.children.contains_key(action) {
@@ -167,20 +171,15 @@ fn update_recursive(node: Arc<RwLock<TreeNode>>, leaf_value: f32) {
 fn visit(parent: &TreeNode, node: &TreeNode, c_puct: f32) -> f32 {
     //let binding = node.parent.clone().unwrap();
     //let parent = binding.read().unwrap();
+    let forced_playout = (2. * node.p * parent.n_visits as f32).sqrt().round() as i32;
     c_puct * node.p * (parent.n_visits as f32).sqrt() / (1.0 + node.n_visits as f32)
 }
 fn select(node: &TreeNode, c_puct: f32) -> (i32, Arc<RwLock<TreeNode>>) {
     let nd = node;
     let mut u: HashMap<&i32, f32> = HashMap::new();
     for child in nd.children.iter() {
-        /*let n = &mut self.nodes[*child.1];
-        let parent = &mut self.nodes[n.parent.unwrap()];
-        n.u = c_puct * n.p * (parent.n_visits as f32).sqrt()
-            / (1.0 + n.n_visits as f32);*/
         let c = child.1.read().unwrap();
-        //println!("{} reading {} at point 1", std::thread::current().name().unwrap(), c.id);
         u.insert(child.0, visit(nd, &c, c_puct));
-        //println!("{} read released {} at point 1", std::thread::current().name().unwrap(), c.id);
     }
     let r = nd
         .children
@@ -507,7 +506,11 @@ impl MCTS {
         let act_visits = root
             .children
             .iter()
-            .map(|(&action, node)| (action, node.read().unwrap().n_visits))
+            .map(|(&action, node)| {
+                let visits = node.read().unwrap().n_visits;
+                
+                (action, visits)
+            })    
             .collect::<Vec<_>>();
         let (actions, visits) = act_visits
             .iter()
@@ -556,7 +559,7 @@ impl MCTS {
             let mut root = self.root.write().unwrap();
             root.parent = None;
             if selfplay && root.children.len() > 1 && !root.applied_noise {
-                let alpha = 0.1;
+                let alpha = 0.03 * 361. / root.children.len() as f64;
                 apply_noise(&mut root, alpha, 0.25)
             }
             /*
