@@ -111,7 +111,7 @@ fn expand(node_rc: Arc<RwLock<TreeNode>>, action_priors: &Vec<(i32, f32)>, selfp
     //println!("{} writing {} at point 1", std::thread::current().name().unwrap(), node.id);
     // alpha of dirichlet noise; related to sensible actions num
     // for 24 actions, 0.8 is appropriate
-    let alpha = 0.1;
+    let alpha = 0.03 * 361. / action_priors.len() as f64;
     let len = action_priors.len();
         for (action, prob) in action_priors.iter() {
             if !node.children.contains_key(action) {
@@ -569,7 +569,7 @@ impl MCTS {
             let mut root = self.root.write().unwrap();
             root.parent = None;
             if selfplay && root.children.len() > 1 && !root.applied_noise {
-                let alpha = 0.1;
+                let alpha = 0.03 * 361. / root.children.len() as f64;
                 apply_noise(&mut root, alpha, 0.25)
             }
             /*
