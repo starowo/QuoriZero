@@ -69,7 +69,7 @@ impl TreeNode {
         } else if self.n_visits > 0 {
             (self.q * self.n_visits as f32) / self.n_visits as f32 + u
         } else {
-            u
+            self.q + u
         }
     }
 
@@ -518,6 +518,9 @@ impl MCTS {
                 if visits < visits_most {
                     let forced_playout = (2. * node.read().unwrap().p * root.n_visits as f32).sqrt();
                     visits -= forced_playout.round() as i32;
+                    if visits < 0 {
+                        visits = 0;
+                    }
                 }
                 (action, visits)
             })    
