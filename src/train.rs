@@ -36,7 +36,7 @@ pub async fn train(http_address: String) {
 pub const BATCH_SIZE: usize = 512;
 const BUFFER_SIZE: usize = 10000;
 
-const SELFPLAY_PLAYOUT: usize = 600;
+const SELFPLAY_PLAYOUT: usize = 800;
 const SELFPLAY_TEMP: f32 = 1.0;
 const SELFPLAY_CPUCT: f32 = 2.0;
 
