@@ -273,7 +273,7 @@ impl TrainPipeline {
 
     async fn train(&mut self) {
         self.net.save("latest.model", format!("{}/model", self.http_address)).await;
-        let mut batch: usize = 100;
+        let mut batch: usize = 200;
         loop {
             //let len = self.collect_data(3, max(10, batch / 10), batch);
 
@@ -293,7 +293,7 @@ impl TrainPipeline {
                 if batch % 50 == 0 {
                     {
                         let wr =
-                            weight_comparation(self.net.net.clone(), 1e-4, 4.0, 1200);
+                            weight_comparation(self.net.net.clone(), 0.5, 4.0, 1200);
                         println!("winrate: {:.3}", wr);
                         if wr > 0.55 {
                             println!("new best!");
