@@ -36,7 +36,7 @@ pub async fn train(http_address: String) {
 pub const BATCH_SIZE: usize = 512;
 const BUFFER_SIZE: usize = 10000;
 
-const SELFPLAY_PLAYOUT: usize = 800;
+const SELFPLAY_PLAYOUT: usize = 600;
 const SELFPLAY_TEMP: f32 = 1.0;
 const SELFPLAY_CPUCT: f32 = 2.0;
 
@@ -273,7 +273,7 @@ impl TrainPipeline {
 
     async fn train(&mut self) {
         self.net.save("latest.model", format!("{}/model", self.http_address)).await;
-        let mut batch: usize = 200;
+        let mut batch: usize = 300;
         loop {
             //let len = self.collect_data(3, max(10, batch / 10), batch);
 
