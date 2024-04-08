@@ -64,8 +64,12 @@ impl TreeNode {
     fn get_value(&self, u: f32) -> f32 {
         if self.vloss > 0. && self.n_visits > 0 {
             (self.q * self.n_visits as f32 - self.vloss * C_LOSS) / self.n_visits as f32 + u
-        }else {
+        } else if self.vloss > 0. {
             self.q - self.vloss * C_LOSS + u
+        } else if self.n_visits > 0 {
+            (self.q * self.n_visits as f32) / self.n_visits as f32 + u
+        } else {
+            self.q + u
         }
     }
 
@@ -520,6 +524,9 @@ impl MCTS {
                 if visits < visits_most {
                     let forced_playout = (2. * node.read().unwrap().p * root.n_visits as f32).sqrt();
                     visits -= forced_playout.round() as i32;
+                    if visits < 0 {
+                        visits = 0;
+                    }
                 }
                 (action, visits)
             })    
