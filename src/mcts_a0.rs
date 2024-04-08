@@ -107,7 +107,7 @@ fn expand(node_rc: Arc<RwLock<TreeNode>>, action_priors: &Vec<(i32, f32)>, selfp
     //println!("{} writing {} at point 1", std::thread::current().name().unwrap(), node.id);
     // alpha of dirichlet noise; related to sensible actions num
     // for 24 actions, 0.8 is appropriate
-    let alpha = 0.1;
+    let alpha = 0.03 * 19.*19. / action_priors.len() as f64;
     let len = action_priors.len();
         for (action, prob) in action_priors.iter() {
             if !node.children.contains_key(action) {
@@ -167,6 +167,10 @@ fn update_recursive(node: Arc<RwLock<TreeNode>>, leaf_value: f32) {
 fn visit(parent: &TreeNode, node: &TreeNode, c_puct: f32) -> f32 {
     //let binding = node.parent.clone().unwrap();
     //let parent = binding.read().unwrap();
+    let forced_playout = (2. * node.p * parent.n_visits as f32).sqrt().round() as i32;
+    if node.n_visits < forced_playout && parent.parent.is_none() {
+        return 10000.0;
+    }
     c_puct * node.p * (parent.n_visits as f32).sqrt() / (1.0 + node.n_visits as f32)
 }
 fn select(node: &TreeNode, c_puct: f32) -> (i32, Arc<RwLock<TreeNode>>) {
@@ -503,11 +507,22 @@ impl MCTS {
         }
         //let tm = std::time::SystemTime::now().duration_since(time).unwrap().as_millis();
         //println!("{}v/s", n_playout as f32 / tm as f32*1000.0);
+        let visits_most = self.root.read().unwrap().children.iter()
+            .map(|(_, node)| node.read().unwrap().n_visits)
+            .max()
+            .unwrap();
         let root = self.root.read().unwrap();
         let act_visits = root
             .children
             .iter()
-            .map(|(&action, node)| (action, node.read().unwrap().n_visits))
+            .map(|(&action, node)| {
+                let mut visits = node.read().unwrap().n_visits;
+                if visits < visits_most {
+                    let forced_playout = (2. * node.read().unwrap().p * root.n_visits as f32).sqrt();
+                    visits -= forced_playout.round() as i32;
+                }
+                (action, visits)
+            })    
             .collect::<Vec<_>>();
         let (actions, visits) = act_visits
             .iter()
@@ -556,7 +571,7 @@ impl MCTS {
             let mut root = self.root.write().unwrap();
             root.parent = None;
             if selfplay && root.children.len() > 1 && !root.applied_noise {
-                let alpha = 0.1;
+                let alpha = 0.03 * 19.*19. / root.children.len() as f64;
                 apply_noise(&mut root, alpha, 0.25)
             }
             /*
