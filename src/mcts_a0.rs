@@ -64,8 +64,12 @@ impl TreeNode {
     fn get_value(&self, u: f32) -> f32 {
         if self.vloss > 0. && self.n_visits > 0 {
             (self.q * self.n_visits as f32 - self.vloss * C_LOSS) / self.n_visits as f32 + u
-        }else {
+        } else if self.vloss > 0. {
             self.q - self.vloss * C_LOSS + u
+        } else if self.n_visits > 0 {
+            (self.q * self.n_visits as f32) / self.n_visits as f32 + u
+        } else {
+            u
         }
     }
 
@@ -167,20 +171,18 @@ fn update_recursive(node: Arc<RwLock<TreeNode>>, leaf_value: f32) {
 fn visit(parent: &TreeNode, node: &TreeNode, c_puct: f32) -> f32 {
     //let binding = node.parent.clone().unwrap();
     //let parent = binding.read().unwrap();
+    let forced_playout = (2. * node.p * parent.n_visits as f32).sqrt().round() as i32;
+    if node.n_visits < forced_playout && parent.parent.is_none() {
+        return 10000.0;
+    }
     c_puct * node.p * (parent.n_visits as f32).sqrt() / (1.0 + node.n_visits as f32)
 }
 fn select(node: &TreeNode, c_puct: f32) -> (i32, Arc<RwLock<TreeNode>>) {
     let nd = node;
     let mut u: HashMap<&i32, f32> = HashMap::new();
     for child in nd.children.iter() {
-        /*let n = &mut self.nodes[*child.1];
-        let parent = &mut self.nodes[n.parent.unwrap()];
-        n.u = c_puct * n.p * (parent.n_visits as f32).sqrt()
-            / (1.0 + n.n_visits as f32);*/
         let c = child.1.read().unwrap();
-        //println!("{} reading {} at point 1", std::thread::current().name().unwrap(), c.id);
         u.insert(child.0, visit(nd, &c, c_puct));
-        //println!("{} read released {} at point 1", std::thread::current().name().unwrap(), c.id);
     }
     let r = nd
         .children
@@ -503,11 +505,22 @@ impl MCTS {
         }
         //let tm = std::time::SystemTime::now().duration_since(time).unwrap().as_millis();
         //println!("{}v/s", n_playout as f32 / tm as f32*1000.0);
+        let visits_most = self.root.read().unwrap().children.iter()
+            .map(|(_, node)| node.read().unwrap().n_visits)
+            .max()
+            .unwrap();
         let root = self.root.read().unwrap();
         let act_visits = root
             .children
             .iter()
-            .map(|(&action, node)| (action, node.read().unwrap().n_visits))
+            .map(|(&action, node)| {
+                let mut visits = node.read().unwrap().n_visits;
+                if visits < visits_most {
+                    let forced_playout = (2. * node.read().unwrap().p * root.n_visits as f32).sqrt();
+                    visits -= forced_playout.round() as i32;
+                }
+                (action, visits)
+            })    
             .collect::<Vec<_>>();
         let (actions, visits) = act_visits
             .iter()
