@@ -318,11 +318,11 @@ pub(crate) struct MCTS {
 }
 
 impl MCTS {
-    fn new(net: Arc<RwLock<Net>>, c_puct: f32, n_playout: usize, num_nets: usize) -> MCTS {
+    fn new(net: Arc<RwLock<Net>>, c_puct: f32, n_playout: usize, num_nets: usize, path: &str) -> MCTS {
         let mut nets = vec![net];
         for _ in 1..num_nets {
-            let cloned_net = NetTrain::new(if std::path::Path::new("latest.model").exists() {
-                Some("latest.model")
+            let cloned_net = NetTrain::new(if std::path::Path::new(path).exists() {
+                Some(path)
             } else {
                 None
             }).net.clone();
@@ -594,9 +594,10 @@ impl MCTSPlayer {
         n_playout: usize,
         is_selfplay: bool,
         num_nets: usize,
+        path: &str,
     ) -> MCTSPlayer {
         MCTSPlayer {
-            mcts: MCTS::new(net, c_puct, n_playout, num_nets),
+            mcts: MCTS::new(net, c_puct, n_playout, num_nets, path),
             is_selfplay,
         }
     }

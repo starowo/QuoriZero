@@ -379,8 +379,8 @@ fn weight_comparation(
                     let b = best.clone();
                     board.init(i % 2 + 1);
                     if true {
-                        let mut player = MCTSPlayer::new(n, c_puct, n_playout_a0, false, 2);
-                        let mut best = MCTSPlayer::new(b, c_puct, n_playout_a0, false, 2);
+                        let mut player = MCTSPlayer::new(n, c_puct, n_playout_a0, false, 2, "latest.model");
+                        let mut best = MCTSPlayer::new(b, c_puct, n_playout_a0, false, 2, "best.model");
                         let mut turn = 0;
                         loop {
                             let current = board.current_player();
@@ -465,7 +465,7 @@ fn evaluate_with_pure_mcts_parallel(
                     let mut board = Board::new();
                     board.init((count % 2 + 1).try_into().unwrap());
                     if true {
-                        let mut player = MCTSPlayer::new(n, c_puct, n_playout_a0, false, 1);
+                        let mut player = MCTSPlayer::new(n, c_puct, n_playout_a0, false, 1, "latest.model");
                         let mut pure = super::mcts_pure_parallel::MCTSPlayer::new(
                             c_puct,
                             n_playout_pure,
@@ -638,7 +638,7 @@ fn start_self_play(
     let mut board = Board::new();
     let mut i: f32 = 0.0;
     board.init(rand::thread_rng().gen_range::<u16, u16, u16>(1, 3));
-    let mut player = MCTSPlayer::new(net.clone(), c_puct, n_playout, true, 1);
+    let mut player = MCTSPlayer::new(net.clone(), c_puct, n_playout, true, 1, "latest.model");
     let (mut states, mut mcts_probs, mut current_players): (
         Vec<Array3<f32>>,
         Vec<Vec<f32>>,
