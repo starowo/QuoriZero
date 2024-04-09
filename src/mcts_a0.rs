@@ -316,11 +316,10 @@ pub(crate) struct MCTS {
     nets: Vec<Arc<RwLock<Net>>>,
     root: Arc<RwLock<TreeNode>>,
     c_puct: f32,
-    n_playout: usize,
 }
 
 impl MCTS {
-    fn new(net: Arc<RwLock<Net>>, c_puct: f32, n_playout: usize, num_nets: usize) -> MCTS {
+    fn new(net: Arc<RwLock<Net>>, c_puct: f32, num_nets: usize) -> MCTS {
         let mut nets = vec![net];
         for _ in 1..num_nets {
             let cloned_net = NetTrain::new(if std::path::Path::new("latest.model").exists() {
@@ -334,7 +333,6 @@ impl MCTS {
             nets,
             root: Arc::new(TreeNode::new(None, 1.0, false).into()),
             c_puct,
-            n_playout,
         };
         n
     }
@@ -607,12 +605,11 @@ impl MCTSPlayer {
     pub fn new(
         net: Arc<RwLock<Net>>,
         c_puct: f32,
-        n_playout: usize,
         is_selfplay: bool,
         num_nets: usize,
     ) -> MCTSPlayer {
         MCTSPlayer {
-            mcts: MCTS::new(net, c_puct, n_playout, num_nets),
+            mcts: MCTS::new(net, c_puct, num_nets),
             is_selfplay,
         }
     }

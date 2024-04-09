@@ -5,15 +5,13 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use ndarray::{Array2, Array3, ArrayD};
-use rand::Rng;
+use ndarray::Array3;
 use reqwest::Client;
-use serde::de;
 use tch::{
     nn::{
-        self, BatchNormConfig, Conv, Conv2D, ConvConfig, Func, FuncT, LinearConfig, Module, ModuleT, Optimizer, OptimizerConfig, SequentialT, VarStore, Variables
+        self, Conv2D, LinearConfig, Module, ModuleT, Optimizer, OptimizerConfig, VarStore
     },
-    Device, Kind, Shape, Tensor,
+    Device, Kind, Tensor,
 };
 
 use super::train::BATCH_SIZE;
