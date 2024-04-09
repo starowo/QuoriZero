@@ -457,12 +457,12 @@ impl MCTS {
         //node.update_recursive(-leaf_value);
     }
     */
-    fn get_move_probs(&self, state: &mut Board, temp: f32, selfplay: bool, thread: usize) -> (Vec<i32>, Vec<f32>, Vec<f32>) {
+    fn get_move_probs(&self, state: &mut Board, temp: f32, selfplay: bool, n_playout: usize, thread: usize) -> (Vec<i32>, Vec<f32>, Vec<f32>) {
         let mut threads = vec![];
         let n_playout = if state.walls[0] == 0 && state.walls[1] == 0 && state.available.len() == 1 {
             5
         } else {
-            self.n_playout
+            n_playout
         };
         let expanding: Arc<RwLock<Vec<Uuid>>> = Arc::new(RwLock::new(vec![]));
         //let time = std::time::SystemTime::now();
@@ -622,47 +622,14 @@ impl MCTSPlayer {
         board: &mut Board,
         temp: f32,
         _return_prob: bool,
+        n_playout: usize,
         thread: usize
     ) -> (i32, Vec<f32>) {
         let sensible_moves = &mut board.available;
         // the pi vector returned by MCTS as in the alphaGo Zero paper
         let mut move_probs = vec![0.0; 132];
         if !sensible_moves.is_empty() {
-            let (acts, probs, origin_probs) = self.mcts.get_move_probs(board, temp, self.is_selfplay, thread);
-            /*if !self.is_selfplay && self.mcts.n_playout >= 1000 {
-                loop {
-                    let mut input_1 = String::new();
-                    println!("winrate: {}", -self.mcts.root.read().unwrap().q);
-                    let mut move_probs = vec![0.0; 24];
-                    let mut i = 0;
-                    while i < acts.len() {
-                        move_probs[acts[i] as usize] = origin_probs[i];
-                        i += 1;
-                    }
-                    let mut map = move_probs
-                    .iter()
-                    .enumerate()
-                    .map(|(k, v)| (k, v))
-                    .collect::<Vec<(usize, &f32)>>();
-                    map.sort_by(|(_, b), (_, a)| a.partial_cmp(b).unwrap());
-                    let mut i = 0;
-                    while i < 3 && i < map.len() {
-                        let (move_, value) = map[i];
-                        let (x, y) = (0,0);
-                        let chars = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'];
-                        println!("move: {},{} ({}{}) prob:{}", x, y, chars[x], y+1, value);
-                        i += 1
-                    }
-                    println!("keep searching? y(yes) or other(no)");
-                    std::io::stdin().read_line(&mut input_1)
-                        .expect("Failed to read line");
-                    if input_1.contains("y") {
-                        (acts, probs, origin_probs) = self.mcts.get_move_probs(board, temp, self.is_selfplay, thread);
-                        continue;
-                    }
-                    break;
-                }
-            }*/
+            let (acts, probs, origin_probs) = self.mcts.get_move_probs(board, temp, self.is_selfplay, n_playout, thread);
             let mut i = 0;
             while i < acts.len() {
                 move_probs[acts[i] as usize] = probs[i];

@@ -437,10 +437,13 @@ pub struct ResNetT {
     value_head: ValueHead,
 }
 
+unsafe impl Send for ResNetT {}
+unsafe impl Sync for ResNetT {}
+
 impl ResNetT {
 
     pub fn new(p: nn::Path) -> ResNetT {
-        let conv = conv2d(p / "convpre", 9, FEATURES, 3, 1, 1);
+        let conv = conv2d(&p / "convpre", 9, FEATURES, 3, 1, 1);
         let mut blocks = vec![];
         for i in 0..4 {
             blocks.push(ResBlock::new(&p / format!("block{}", i + 1), FEATURES, FEATURES, None));
@@ -525,38 +528,6 @@ impl Net {
                 .reshape(&[1, 132]),
         );
         (p_loss.try_into().unwrap(), v_loss.try_into().unwrap())
-        /*let rot = rand::thread_rng().gen_range(0, 4);
-        tensor = tensor.rot90(rot, &[2, 3]);
-        let flip = rand::thread_rng().gen_bool(0.5);
-        if flip {
-            tensor = tensor.flip(&[2]);
-        }
-        let (mut p_tensor, v_tensor) = self.net.forward_t(&tensor, false);
-        p_tensor = p_tensor.reshape(&[9, 9]);
-        if flip {
-            p_tensor = p_tensor.flipud();
-        }
-        p_tensor = p_tensor.rot90(-rot, &[0, 1]);
-        (p_tensor, v_tensor)*/
-        /*
-        //p_tensor = p_tensor.reshape(&[81]);
-        let (p, v): (&Vec<Vec<f32>>, &Vec<f32>) = (&p_tensor.exp().into(), v_tensor.into());
-        //Array2::from(p);
-        let mut probs = vec![];
-        for i in 0..81 {
-            if available.contains(&i) {
-                probs.push(p[i as usize]);
-            } else {
-                probs.push(0.);
-            }
-        }
-        let pr = probs
-            .iter()
-            .enumerate()
-            .map(|(pos, prb)| (pos as i32, *prb))
-            .collect();
-        return (pr, v);
-         */
     }
     pub fn policy_value(
         &self,
