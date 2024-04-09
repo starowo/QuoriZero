@@ -346,7 +346,7 @@ struct SingleData {
 impl SingleData {
 
     fn get_state(&self) -> (Array3<f32>, Vec<f32>, Vec<f32>, f32) {
-        let state = Array3::from_shape_vec((9, 17, 17), self.state.0.clone()).unwrap();
+        let state = Array3::from_shape_vec((14, 17, 17), self.state.0.clone()).unwrap();
         (state, self.state.1.clone(), self.state.2.clone(), self.state.3)
     }
     
