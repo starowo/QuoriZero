@@ -190,7 +190,7 @@ impl TrainPipeline {
                     self.net
                         .evaluate_batch(state.clone(), prob.clone(), win.clone());
                 let value_output: Vec<f64> = oldv
-                    .view_(&[512])
+                    .reshape(&[512])
                     .iter::<f64>()
                     .unwrap()
                     .map(f64::from)
