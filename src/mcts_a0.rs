@@ -2,6 +2,7 @@ use ndarray::prelude::*;
 use rand::distributions::{Dirichlet, WeightedIndex};
 use rand::prelude::*;
 use std::collections::HashMap;
+use std::path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock, Weak};
 use std::time::Duration;
@@ -111,7 +112,7 @@ fn expand(node_rc: Arc<RwLock<TreeNode>>, action_priors: &Vec<(i32, f32)>, selfp
     //println!("{} writing {} at point 1", std::thread::current().name().unwrap(), node.id);
     // alpha of dirichlet noise; related to sensible actions num
     // for 24 actions, 0.8 is appropriate
-    let alpha = 0.03 * 19.*19. / action_priors.len() as f64;
+    let alpha = 0.03 * 361. / action_priors.len() as f64;
     let len = action_priors.len();
         for (action, prob) in action_priors.iter() {
             if !node.children.contains_key(action) {
@@ -181,14 +182,8 @@ fn select(node: &TreeNode, c_puct: f32) -> (i32, Arc<RwLock<TreeNode>>) {
     let nd = node;
     let mut u: HashMap<&i32, f32> = HashMap::new();
     for child in nd.children.iter() {
-        /*let n = &mut self.nodes[*child.1];
-        let parent = &mut self.nodes[n.parent.unwrap()];
-        n.u = c_puct * n.p * (parent.n_visits as f32).sqrt()
-            / (1.0 + n.n_visits as f32);*/
         let c = child.1.read().unwrap();
-        //println!("{} reading {} at point 1", std::thread::current().name().unwrap(), c.id);
         u.insert(child.0, visit(nd, &c, c_puct));
-        //println!("{} read released {} at point 1", std::thread::current().name().unwrap(), c.id);
     }
     let r = nd
         .children
@@ -322,11 +317,10 @@ pub(crate) struct MCTS {
     nets: Vec<Arc<RwLock<Net>>>,
     root: Arc<RwLock<TreeNode>>,
     c_puct: f32,
-    n_playout: usize,
 }
 
 impl MCTS {
-    fn new(net: Arc<RwLock<Net>>, c_puct: f32, n_playout: usize, num_nets: usize, path: &str) -> MCTS {
+    fn new(net: Arc<RwLock<Net>>, c_puct: f32, num_nets: usize, path: &str) -> MCTS {
         let mut nets = vec![net];
         for _ in 1..num_nets {
             let cloned_net = NetTrain::new(if std::path::Path::new(path).exists() {
@@ -340,7 +334,6 @@ impl MCTS {
             nets,
             root: Arc::new(TreeNode::new(None, 1.0, false).into()),
             c_puct,
-            n_playout,
         };
         n
     }
@@ -463,12 +456,12 @@ impl MCTS {
         //node.update_recursive(-leaf_value);
     }
     */
-    fn get_move_probs(&self, state: &mut Board, temp: f32, selfplay: bool, thread: usize) -> (Vec<i32>, Vec<f32>, Vec<f32>) {
+    fn get_move_probs(&self, state: &mut Board, temp: f32, selfplay: bool, n_playout: usize, thread: usize) -> (Vec<i32>, Vec<f32>, Vec<f32>) {
         let mut threads = vec![];
         let n_playout = if state.walls[0] == 0 && state.walls[1] == 0 && state.available.len() == 1 {
             5
         } else {
-            self.n_playout
+            n_playout
         };
         let expanding: Arc<RwLock<Vec<Uuid>>> = Arc::new(RwLock::new(vec![]));
         //let time = std::time::SystemTime::now();
@@ -578,7 +571,7 @@ impl MCTS {
             let mut root = self.root.write().unwrap();
             root.parent = None;
             if selfplay && root.children.len() > 1 && !root.applied_noise {
-                let alpha = 0.03 * 19.*19. / root.children.len() as f64;
+                let alpha = 0.03 * 361. / root.children.len() as f64;
                 apply_noise(&mut root, alpha, 0.25)
             }
             /*
@@ -613,13 +606,12 @@ impl MCTSPlayer {
     pub fn new(
         net: Arc<RwLock<Net>>,
         c_puct: f32,
-        n_playout: usize,
         is_selfplay: bool,
         num_nets: usize,
-        path: &str,
+        path: &str
     ) -> MCTSPlayer {
         MCTSPlayer {
-            mcts: MCTS::new(net, c_puct, n_playout, num_nets, path),
+            mcts: MCTS::new(net, c_puct, num_nets, path),
             is_selfplay,
         }
     }
@@ -629,47 +621,14 @@ impl MCTSPlayer {
         board: &mut Board,
         temp: f32,
         _return_prob: bool,
+        n_playout: usize,
         thread: usize
     ) -> (i32, Vec<f32>) {
         let sensible_moves = &mut board.available;
         // the pi vector returned by MCTS as in the alphaGo Zero paper
         let mut move_probs = vec![0.0; 132];
         if !sensible_moves.is_empty() {
-            let (acts, probs, origin_probs) = self.mcts.get_move_probs(board, temp, self.is_selfplay, thread);
-            /*if !self.is_selfplay && self.mcts.n_playout >= 1000 {
-                loop {
-                    let mut input_1 = String::new();
-                    println!("winrate: {}", -self.mcts.root.read().unwrap().q);
-                    let mut move_probs = vec![0.0; 24];
-                    let mut i = 0;
-                    while i < acts.len() {
-                        move_probs[acts[i] as usize] = origin_probs[i];
-                        i += 1;
-                    }
-                    let mut map = move_probs
-                    .iter()
-                    .enumerate()
-                    .map(|(k, v)| (k, v))
-                    .collect::<Vec<(usize, &f32)>>();
-                    map.sort_by(|(_, b), (_, a)| a.partial_cmp(b).unwrap());
-                    let mut i = 0;
-                    while i < 3 && i < map.len() {
-                        let (move_, value) = map[i];
-                        let (x, y) = (0,0);
-                        let chars = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'];
-                        println!("move: {},{} ({}{}) prob:{}", x, y, chars[x], y+1, value);
-                        i += 1
-                    }
-                    println!("keep searching? y(yes) or other(no)");
-                    std::io::stdin().read_line(&mut input_1)
-                        .expect("Failed to read line");
-                    if input_1.contains("y") {
-                        (acts, probs, origin_probs) = self.mcts.get_move_probs(board, temp, self.is_selfplay, thread);
-                        continue;
-                    }
-                    break;
-                }
-            }*/
+            let (acts, probs, origin_probs) = self.mcts.get_move_probs(board, temp, self.is_selfplay, n_playout, thread);
             let mut i = 0;
             while i < acts.len() {
                 move_probs[acts[i] as usize] = probs[i];

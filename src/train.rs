@@ -160,8 +160,8 @@ impl TrainPipeline {
     fn train_step(&mut self) {
         for _ in 0..1 {
             let len = self.data_buffer.len();
-            let (mut kl_t, mut p_loss_total, mut v_loss_total, mut var_old_t, mut var_new_t) =
-                (0., 0., 0., 0., 0.);
+            let (mut kl_t, mut p_loss_total, mut o_loss_total, mut v_loss_total, mut var_old_t, mut var_new_t) =
+                (0., 0., 0., 0., 0., 0.);
             let batches = len / BATCH_SIZE;
             //let mut cloned_buffer: Vec<SingleData> = self.data_buffer.clone().into();
             //cloned_buffer.shuffle(&mut rand::thread_rng());
@@ -177,11 +177,12 @@ impl TrainPipeline {
                 //println!("{:?}", has_duplicate_values(mini_batch.clone()));
                 /*let mini_batch =
                 sample(&mut rand::thread_rng(), self.data_buffer.len(), BATCH_SIZE).into_vec();*/
-                let (mut state, mut prob, mut win) = (vec![], vec![], vec![]);
-                for index in i * BATCH_SIZE..(i + 1) * BATCH_SIZE {
-                    let (a, b, c) = &self.data_buffer.remove(0).get_state();
+                let (mut state, mut prob, mut opp_prob, mut win) = (vec![], vec![], vec![], vec![]);
+                for _ in i * BATCH_SIZE..(i + 1) * BATCH_SIZE {
+                    let (a, b, b2, c) = &self.data_buffer.remove(0).get_state();
                     state.extend(a.clone().into_raw_vec());
                     prob.extend(b);
+                    opp_prob.extend(b2);
                     win.push(*c);
                 }
                 let mut kl = 0.;
@@ -200,20 +201,18 @@ impl TrainPipeline {
                     .collect::<Vec<String>>()
                     .join(",");
                 str = format!("output{}", str);
-                let mut ploss = 0.;
-                let mut vloss = 0.;
-                let mut newp;
-                let mut newv = Tensor::from(0.0);
 
-                (ploss, vloss) = self.net.train_step(
+                let (ploss, oloss, vloss) = self.net.train_step(
                     state.clone(),
                     prob.clone(),
+                    opp_prob.clone(),
                     win.clone(),
                     self.lr,
                 );
                 p_loss_total += ploss;
+                o_loss_total += oloss;
                 v_loss_total += vloss;
-                (newp, newv) = self
+                let (newp, newv) = self
                     .net
                     .evaluate_batch(state.clone(), prob.clone(), win.clone());
                 let logdiff = oldp
@@ -267,12 +266,12 @@ impl TrainPipeline {
                 var_old_t += value_variance_old;
                 //println!("kl: {}, lr_ratio: {:.3}, policy_loss:{:.6}, value_loss:{:.6}, var_old: {:.3}, var_new: {:.3}", kl, self.lr_multiplier, ploss, vloss, value_variance_old, value_variance_new)
             }
-            println!("batch trained, kl: {}, policy_loss:{:.6}, value_loss:{:.6}, var_old: {:.3}, var_new: {:.3}", kl_t / batches as f32, p_loss_total / batches as f32, v_loss_total / batches as f32, var_old_t / batches as f32, var_new_t / batches as f32)
+            println!("batch trained, kl: {}, policy_loss:{:.6}, oppo_policy_loss:{:.6}, value_loss:{:.6}, var_old: {:.3}, var_new: {:.3}", kl_t / batches as f32, p_loss_total / batches as f32, o_loss_total / batches as f32, v_loss_total / batches as f32, var_old_t / batches as f32, var_new_t / batches as f32)
         }
     }
 
     async fn train(&mut self) {
-        self.net.save("latest.model", format!("{}/model", self.http_address)).await;
+        self.net.save("latest.model", format!("{}/model", self.http_address).as_str()).await;
         let mut batch: usize = 321;
         loop {
             //let len = self.collect_data(3, max(10, batch / 10), batch);
@@ -288,7 +287,7 @@ impl TrainPipeline {
             if self.data_buffer.len() >= BATCH_SIZE * 10 {
                 self.lr = if batch < 5 {0.02} else if batch < 100 {0.005} else if batch < 500 {0.002} else {0.0002};
                 self.train_step();
-                self.net.save("latest.model", format!("{}/model", self.http_address)).await;
+                self.net.save("latest.model", format!("{}/model", self.http_address).as_str()).await;
                 batch += 1;
                 if batch % 50 == 0 {
                     {
@@ -297,7 +296,7 @@ impl TrainPipeline {
                         println!("winrate: {:.3}", wr);
                         if wr > 0.55 {
                             println!("new best!");
-                            self.net.save("best.model", String::from("")).await;
+                            self.net.save("best.model", String::from("").as_str()).await;
                         }
                     }
                 }
@@ -339,19 +338,20 @@ fn has_duplicate_values(vec: Vec<usize>) -> bool {
 }
 #[derive(Clone, Serialize, Deserialize)]
 struct SingleData {
-    state: (Vec<f32>, Vec<f32>, f32),
+    state: (Vec<f32>, Vec<f32>, Vec<f32>, f32),
     loss: f32,
     weight: f32,
 }
 
 impl SingleData {
 
-    fn get_state(&self) -> (Array3<f32>, Vec<f32>, f32) {
+    fn get_state(&self) -> (Array3<f32>, Vec<f32>, Vec<f32>, f32) {
         let state = Array3::from_shape_vec((9, 17, 17), self.state.0.clone()).unwrap();
-        (state, self.state.1.clone(), self.state.2)
+        (state, self.state.1.clone(), self.state.2.clone(), self.state.3)
     }
     
 }
+
 
 fn weight_comparation(
     net: Arc<RwLock<Net>>,
@@ -379,13 +379,13 @@ fn weight_comparation(
                     let b = best.clone();
                     board.init(i % 2 + 1);
                     if true {
-                        let mut player = MCTSPlayer::new(n, c_puct, n_playout_a0, false, 2, "latest.model");
-                        let mut best = MCTSPlayer::new(b, c_puct, n_playout_a0, false, 2, "best.model");
+                        let mut player = MCTSPlayer::new(n, c_puct,  false, 2, "latest.model");
+                        let mut best = MCTSPlayer::new(b, c_puct,  false, 2, "best.model");
                         let mut turn = 0;
                         loop {
                             let current = board.current_player();
                             if current == 1 {
-                                let (move_, nums) = player.get_action(&mut board, temp, true, 1);
+                                let (move_, nums) = player.get_action(&mut board, temp, true, n_playout_a0, 1);
                                 let mut map = nums
                                     .iter()
                                     .enumerate()
@@ -396,7 +396,7 @@ fn weight_comparation(
                                 player.mcts.update_with_move(move_, false);
                                 best.mcts.update_with_move(move_, false);
                             } else {
-                                let (move_, nums) = best.get_action(&mut board, temp, true, 1);
+                                let (move_, nums) = best.get_action(&mut board, temp, true, n_playout_a0, 1);
                                 let mut map = nums
                                     .iter()
                                     .enumerate()
@@ -465,7 +465,7 @@ fn evaluate_with_pure_mcts_parallel(
                     let mut board = Board::new();
                     board.init((count % 2 + 1).try_into().unwrap());
                     if true {
-                        let mut player = MCTSPlayer::new(n, c_puct, n_playout_a0, false, 1, "latest.model");
+                        let mut player = MCTSPlayer::new(n, c_puct, false, 1, "latest.model");
                         let mut pure = super::mcts_pure_parallel::MCTSPlayer::new(
                             c_puct,
                             n_playout_pure,
@@ -474,7 +474,7 @@ fn evaluate_with_pure_mcts_parallel(
                         loop {
                             let current = board.current_player();
                             if current == 1 {
-                                let (move_, nums) = player.get_action(&mut board, temp, true, 1);
+                                let (move_, nums) = player.get_action(&mut board, temp, true, n_playout_a0, 1);
                                 let mut map = nums
                                     .iter()
                                     .enumerate()
@@ -627,7 +627,7 @@ def graphic(board, players):
 }
  */
 
-fn start_self_play(
+ fn start_self_play(
     progress: Arc<AtomicUsize>,
     net: Arc<RwLock<net::Net>>,
     temp: f32,
@@ -638,28 +638,42 @@ fn start_self_play(
     let mut board = Board::new();
     let mut i: f32 = 0.0;
     board.init(rand::thread_rng().gen_range::<u16, u16, u16>(1, 3));
-    let mut player = MCTSPlayer::new(net.clone(), c_puct, n_playout, true, 1, "latest.model");
-    let (mut states, mut mcts_probs, mut current_players): (
+    let mut player = MCTSPlayer::new(net.clone(), c_puct, true, 1, "latest.model");
+    let mut need_probs = false;
+    let (mut states, mut mcts_probs, mut opp_mcts_probs, mut current_players): (
         Vec<Array3<f32>>,
         Vec<Vec<f32>>,
+        Vec<Vec<f32>>,
         Vec<i8>,
-    ) = (vec![], vec![], vec![]);
+    ) = (vec![], vec![], vec![], vec![]);
     loop {
-        let r_temp = if i < 8.0 {
-            temp - i / 16.0 * temp
+        let rand = rand::thread_rng().gen_range::<f32, f32, f32>(0.0, 1.0);
+        let n_playout = if rand < 0.35 {
+            n_playout
         } else {
-            0.5 * temp
+            150
         };
-        let (move_, move_probs) = player.get_action(&mut board, temp, true, thread);
+        let (move_, move_probs) = player.get_action(&mut board, temp, true, n_playout, thread);
         i += 1.0;
-        states.push(board.current_state());
-        mcts_probs.push(move_probs);
-        current_players.push(board.current_player().try_into().unwrap());
+        
+        if need_probs {
+            need_probs = false;
+            opp_mcts_probs.push(move_probs.clone());
+        }
+        if rand < 0.35 {
+            need_probs = true;
+            states.push(board.current_state());
+            mcts_probs.push(move_probs);
+            current_players.push(board.current_player().try_into().unwrap());
+        }
         //println!("move:{} status:{}", move_, board.status);
         board.do_move(move_.try_into().unwrap(), true, true);
         progress.fetch_add(1, Ordering::SeqCst);
         let (end, winner) = board.game_end();
         if end {
+            if need_probs {
+                opp_mcts_probs.push(vec![0.; 132]);
+            }
             progress.store(150, Ordering::SeqCst);
             let mut winner_z = vec![0.0; current_players.len()];
             let mut i = 0;
@@ -679,13 +693,14 @@ fn start_self_play(
             let owo = states
                 .into_iter()
                 .zip(mcts_probs.into_iter())
+                .zip(opp_mcts_probs.into_iter())
                 .zip(winner_z.into_iter())
                 .enumerate()
-                .map(|(i, ((a, b), c))| {
+                .map(|(i, (((a, b), b2), c))| {
                     //let net = net.read().unwrap();
                     //let (p_loss, v_loss) = net.policy_value_loss(a.clone().into_raw_vec(), b.clone(), c);
                     SingleData {
-                        state: (a.into_raw_vec(), b, c),
+                        state: (a.into_raw_vec(), b, b2, c),
                         loss: 0.,
                         weight: (i as f32 + 2.).log10(),
                     }
@@ -701,19 +716,21 @@ fn get_equi_data(data: Vec<SingleData>) -> Vec<SingleData> {
     result.extend(data.clone());
     for v in data {
         let arr = v.get_state().1;
+        let opp_arr = v.get_state().2;
         result.push(into_data(
-            (flipud_planes(&v.get_state().0), flipud_actions(&arr), v.state.2),
+            (flipud_planes(&v.get_state().0), flipud_actions(&arr), flipud_actions(&opp_arr), v.state.3),
             v.weight,
         ));
         result.push(into_data(
-            (fliplr_planes(&v.get_state().0), fliplr_actions(&arr), v.state.2),
+            (fliplr_planes(&v.get_state().0), fliplr_actions(&arr), fliplr_actions(&opp_arr), v.state.3),
             v.weight,
         ));
         result.push(into_data(
             (
                 flipud_planes(&fliplr_planes(&v.get_state().0)),
                 flipud_actions(&fliplr_actions(&arr)),
-                v.state.2,
+                flipud_actions(&fliplr_actions(&opp_arr)),
+                v.state.3,
             ),
             v.weight,
         ));
@@ -721,9 +738,9 @@ fn get_equi_data(data: Vec<SingleData>) -> Vec<SingleData> {
     result
 }
 
-fn into_data(state: (Array3<f32>, Vec<f32>, f32), weight: f32) -> SingleData {
+fn into_data(state: (Array3<f32>, Vec<f32>, Vec<f32>, f32), weight: f32) -> SingleData {
     SingleData {
-        state: (state.0.into_raw_vec(), state.1, state.2),
+        state: (state.0.into_raw_vec(), state.1, state.2, state.3),
         loss: 0.,
         weight,
     }
