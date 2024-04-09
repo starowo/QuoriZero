@@ -441,7 +441,7 @@ unsafe impl Sync for ResNetT {}
 impl ResNetT {
 
     pub fn new(p: nn::Path) -> ResNetT {
-        let conv = conv2d(&p / "convpre", 9, FEATURES, 3, 1, 1);
+        let conv = conv2d(&p / "convpre", 14, FEATURES, 3, 1, 1);
         let mut blocks = vec![];
         for i in 0..4 {
             blocks.push(ResBlock::new(&p / format!("block{}", i + 1), FEATURES, FEATURES, None));
@@ -478,6 +478,20 @@ impl ResNetT {
         let v = xs.apply_t(&self.value_head, train);
         (p.slice(1, 0, 132, 1), p.slice(1, 132, 264, 1), v)
     }
+
+    pub fn init(&mut self) {
+        tch::no_grad(|| {
+            let spatial_scale = 0.8;
+            init_weights(&mut self.conv.ws, (2_f64).sqrt(), spatial_scale, None);
+            let num_blocks = self.blocks.len();
+            for blocks in &mut self.blocks {
+                let scale = 1. / (num_blocks as f64).sqrt();
+                blocks.init_weights(scale, None);
+            }
+            self.policy_head.init_weights(1.0, None);
+            self.value_head.init_weights(1.0, None);
+        })
+    }
 }
 
 
@@ -489,13 +503,15 @@ pub(crate) struct Net {
 impl Net {
     pub fn new(path: Option<&str>) -> Net {
         let mut vs = VarStore::new(tch::Device::Cuda(0));
-        let resnet = ResNetT::new(vs.root() / "resnet");
+        let mut resnet = ResNetT::new(vs.root() / "resnet");
         match path {
             Some(p) => {
                 println!("loaded {}", p);
                 vs.load(p)
             }
-            None => Ok(()),
+            None => Ok({
+                resnet.init()
+            }),
         }
         .expect("LOAD FAILED");
         Net { net: resnet, vs }
@@ -510,23 +526,6 @@ impl Net {
         -input.dot(&target) / size
     }
 
-    pub fn policy_value_loss(&self, state: Vec<f32>, prob: Vec<f32>, win: f32) -> (f32, f32) {
-        let tensor = tch::Tensor::from_slice(state.as_slice())
-            .to_device(Device::Cuda(0))
-            .reshape(&[1, 14, 17, 17]);
-        let (p_tensor, _, v_tensor) = self.net.forward_t(&tensor, false);
-        let v_loss = v_tensor.mse_loss(
-            &Tensor::from(win).to_device(Device::Cuda(0)),
-            tch::Reduction::Mean,
-        );
-        let p_loss = Net::cross_entropy(
-            &p_tensor.to_kind(Kind::Float).reshape(&[1, 132]),
-            &Tensor::from_slice(prob.as_slice())
-                .to_device(Device::Cuda(0))
-                .reshape(&[1, 132]),
-        );
-        (p_loss.try_into().unwrap(), v_loss.try_into().unwrap())
-    }
     pub fn policy_value(
         &self,
         available: Vec<u16>,
