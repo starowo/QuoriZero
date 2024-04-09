@@ -81,6 +81,10 @@ async fn main() {
                         }
                         if txt == "humanplay" {
                             train::play(Some(tx.clone()), in_rx);
+                            tx_map.insert(id, in_tx.clone());
+                        }
+                        if txt == "showplay" {
+                            train::showplay(Some(tx.clone()));
                             tx_map.insert(id, in_tx);
                         }
                         if txt.starts_with("operate") {

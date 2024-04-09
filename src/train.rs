@@ -50,6 +50,19 @@ pub fn play(tx: Option<Sender<OwnedMessage>>, rx: Receiver<usize>) {
     });
 }
 
+pub fn showplay(tx: Option<Sender<OwnedMessage>>) {
+    //humanplay(net::Net::new(Some("latest.model")), 1e-4, 1.5, 800, true, 2, 2, tx.clone(), rx);
+    thread::spawn(move || {
+        weight_comparation(
+            Arc::new(RwLock::new(net::Net::new(Some("latest.model")))),
+            1e-4,
+            4.0,
+            2400,
+            tx.clone(),
+        );
+    });
+}
+
 fn test() {
     /*
     let tensor = Tensor::of_slice(&size);
@@ -476,7 +489,7 @@ fn weight_comparation(
     let mut threads = vec![];
     //let time = std::time::SystemTime::now();
     let played = Arc::new(AtomicUsize::new(0));
-    let best = Arc::new(RwLock::new(Net::new(Some("best.model"))));
+    let best = Arc::new(RwLock::new(Net::new(Some("latest.model"))));
     for i in 0..1 {
         let a1 = a.clone();
         let net = net.clone();
@@ -493,13 +506,13 @@ fn weight_comparation(
                     let b = best.clone();
                     board.init(i % 2 + 1);
                     if true {
-                        let mut player = MCTSPlayer::new(n, c_puct, n_playout_a0, false, 1);
-                        let mut best = MCTSPlayer::new(b, c_puct, n_playout_a0, false, 1);
+                        let mut player = MCTSPlayer::new(n, c_puct, n_playout_a0, false, 2);
+                        let mut best = MCTSPlayer::new(b, c_puct, n_playout_a0, false, 2);
                         let mut turn = 0;
                         loop {
                             let current = board.current_player();
                             if current == 1 {
-                                let (move_, nums) = player.get_action(&mut board, temp, true, 1);
+                                let (move_, nums) = player.get_action(&mut board, temp, true, 4);
                                 let mut map = nums
                                     .iter()
                                     .enumerate()
@@ -510,7 +523,7 @@ fn weight_comparation(
                                 player.mcts.update_with_move(move_, false);
                                 best.mcts.update_with_move(move_, false);
                             } else {
-                                let (move_, nums) = best.get_action(&mut board, temp, true, 1);
+                                let (move_, nums) = best.get_action(&mut board, temp, true, 4);
                                 let mut map = nums
                                     .iter()
                                     .enumerate()
