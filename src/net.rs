@@ -1,3 +1,4 @@
+use core::str;
 use std::{
     fs,
     ops::Add,
@@ -7,10 +8,10 @@ use std::{
 use ndarray::{Array2, Array3, ArrayD};
 use rand::Rng;
 use reqwest::Client;
+use serde::de;
 use tch::{
     nn::{
-        self, BatchNormConfig, Conv, Conv2D, ConvConfig, Func, FuncT, Module, ModuleT, Optimizer,
-        OptimizerConfig, SequentialT, VarStore, Variables,
+        self, BatchNormConfig, Conv, Conv2D, ConvConfig, Func, FuncT, LinearConfig, Module, ModuleT, Optimizer, OptimizerConfig, SequentialT, VarStore, Variables
     },
     Device, Kind, Shape, Tensor,
 };
@@ -18,6 +19,28 @@ use tch::{
 use super::train::BATCH_SIZE;
 
 const FEATURES: i64 = 128;
+
+fn init_weights(tensor: &mut Tensor, gain: f64, scale: f64, fan_tensor: Option<&Tensor>) {
+    let fan_in = match fan_tensor {
+        Some(f) => tch::nn::init::FanInOut::FanIn.for_weight_dims(&f.size()),
+        None => tch::nn::init::FanInOut::FanIn.for_weight_dims(&tensor.size()),
+    };
+    let target_std = scale * gain / (fan_in as f64).sqrt();
+    let std = target_std / 0.87962566103423978;
+    if std < 1e-10 {
+        let _ = tensor.fill_(0.);
+    } else {
+        // truncated normal distribution
+        let l = (1. + statrs::function::erf::erf(-2. / (2_f64).sqrt())) / 2.;
+        let u = (1. + statrs::function::erf::erf(2. / (2_f64).sqrt())) / 2.;
+
+        let _ = tensor.uniform_(2. * l - 1., 2. * u - 1.);
+        let _ = tensor.erfinv_();
+        let _ = tensor.multiply_(&Tensor::from(std * (2_f64).sqrt()));
+        let _ = tensor.clamp_(-2. * std, 2. * std);
+
+    }
+}
 
 fn conv2d(p: nn::Path, c_in: i64, c_out: i64, ksize: i64, padding: i64, stride: i64) -> Conv2D {
     let conv2d_cfg = nn::ConvConfig {
@@ -29,136 +52,443 @@ fn conv2d(p: nn::Path, c_in: i64, c_out: i64, ksize: i64, padding: i64, stride: 
     nn::conv2d(p, c_in, c_out, ksize, conv2d_cfg)
 }
 
-fn downsample(p: nn::Path, c_in: i64, c_out: i64) -> impl ModuleT {
-    if 1 != 1 || c_in != c_out {
-        nn::seq_t()
-            .add(conv2d(&p / "0", c_in, c_out, 1, 0, 1))
-            .add(nn::batch_norm2d(&p / "1", c_out, Default::default()))
-    } else {
-        nn::seq_t()
+trait QuoriModuleT: ModuleT {
+    fn init_weights(&mut self, scale: f64, norm_scale: Option<f64>);
+}
+
+#[derive(Debug)]
+struct Bias {
+    beta: Tensor,
+    scale: Option<f64>,
+}
+
+impl Bias {
+    fn new(p: nn::Path, c_in: i64) -> Bias {
+        let beta = p.zeros("bias_beta", &[1, c_in, 1, 1]);
+        Bias { beta, scale: None }
+    }
+
+    fn set_scale(&mut self, scale: Option<f64>) {
+        self.scale = scale;
     }
 }
 
-fn batchnorm2d(p: nn::Path, n_features: i64) -> nn::BatchNorm {
-    let mut config = BatchNormConfig::default();
-    config.momentum = 0.1;
-    return nn::batch_norm2d(p, n_features, config);
-}
-
-fn res_block(p: nn::Path) -> impl ModuleT {
-    let conv1 = conv2d(&p / "conv1", FEATURES, FEATURES, 3, 1, 1);
-    let bn1 = batchnorm2d(&p / "bn1", FEATURES);
-    let conv2 = conv2d(&p / "conv2", FEATURES, FEATURES, 3, 1, 1);
-    let bn2 = batchnorm2d(&p / "bn2", FEATURES);
-    nn::func_t(move |xs, train| {
-        let ys = xs
-            .apply(&conv1)
-            .apply_t(&bn1, train)
-            .relu()
-            .apply(&conv2)
-            .apply_t(&bn2, train);
-        (xs + ys).relu()
-    })
-}
-
-fn basic_layer(p: nn::Path, cnt: i64) -> nn::SequentialT {
-    let mut layer = nn::seq_t().add(res_block(&p / "0"));
-    for block_index in 1..cnt {
-        layer = layer.add(res_block(&p / &block_index.to_string()))
-    }
-    layer
-}
-
-fn policy_head(p: nn::Path) -> impl ModuleT {
-    let conv = conv2d(&p / "convp", FEATURES, 16, 1, 0, 1);
-    let bn = batchnorm2d(&p / "bnp", 16);
-    let linear = nn::linear(&p / "linearp", 17 * 17 * 16, 132, Default::default());
-    nn::func_t(move |xs, train| {
-        xs.apply(&conv)
-            .apply_t(&bn, train)
-            .relu()
-            .view((-1, 17 * 17 * 16))
-            .apply(&linear)
-            .log_softmax(1, tch::Kind::Float)
-    })
-}
-
-fn value_head(p: nn::Path) -> impl ModuleT {
-    let conv = conv2d(&p / "convv", FEATURES, 16, 1, 0, 1);
-    let bn = batchnorm2d(&p / "bnv", 16);
-    let linear = nn::linear(&p / "linearv", 17 * 17 * 16, 512, Default::default());
-    let linear2 = nn::linear(&p / "linearv2", 512, 1, Default::default());
-    nn::func_t(move |xs, train| {
-        xs.apply(&conv)
-            .apply_t(&bn, train)
-            .relu()
-            .view((-1, 17 * 17 * 16))
-            .apply(&linear)
-            .relu()
-            .apply(&linear2)
-            .tanh()
-    })
-}
-
-pub struct ResNetT<'a> {
-    f: Box<dyn 'a + Fn(&Tensor, bool) -> (Tensor, Tensor) + Send>,
-}
-
-unsafe impl Send for ResNetT<'_> {}
-unsafe impl Sync for ResNetT<'_> {}
-
-impl<'a> std::fmt::Debug for ResNetT<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "ResNetT")
+impl ModuleT for Bias {
+    fn forward_t(&self, xs: &Tensor, _train: bool) -> Tensor {
+        match self.scale {
+            Some(scale) => xs.add(&self.beta).multiply(&Tensor::from(scale)),
+            None => xs.add(&self.beta),
+        }
     }
 }
 
-pub fn func_t<'a, F>(f: F) -> ResNetT<'a>
-where
-    F: 'a + Fn(&Tensor, bool) -> (Tensor, Tensor) + Send,
-{
-    ResNetT { f: Box::new(f) }
+#[derive(Debug)]
+struct NormFixup {
+    beta: Tensor,
+    gamma: Option<Tensor>,
+    scale: Option<f64>,
 }
 
-impl<'a> ResNetT<'a> {
-    fn forward_t(&self, xs: &Tensor, train: bool) -> (Tensor, Tensor) {
-        (*self.f)(xs, train)
+impl NormFixup {
+    fn new(p: nn::Path, c_in: i64, use_gamma: bool) -> NormFixup {
+        let beta = p.zeros("norm_beta", &[1, c_in, 1, 1]);
+        let gamma = if use_gamma {Some(p.ones("norm_gamma", &[1, c_in, 1, 1]))} else {None};
+        NormFixup {
+            beta,
+            gamma,
+            scale: None,
+        }
+    }
+
+    fn set_scale(&mut self, scale: Option<f64>) {
+        self.scale = scale;
     }
 }
 
-fn resnet1(p: &nn::Path) -> ResNetT<'static> {
-    let p = p;
-    let conv = conv2d(p / "convpre", 9, FEATURES, 1, 0, 1);
-    let bn = batchnorm2d(p / "bnmain", FEATURES);
-    let blocks = basic_layer(p / "layer", 10);
-    let p_head = policy_head(p / "phead");
-    let v_head = value_head(p / "vhead");
-    func_t(move |xs, train| {
-        let ys = xs.apply(&conv).apply_t(&bn, train).apply_t(&blocks, train);
-        return (ys.apply_t(&p_head, train), ys.apply_t(&v_head, train));
-    })
+impl ModuleT for NormFixup {
+    fn forward_t(&self, xs: &Tensor, train: bool) -> Tensor {
+        match self.scale {
+            Some(scale) => {
+                match &self.gamma {
+                    Some(gamma) => {
+                        xs.multiply(&gamma.multiply(&Tensor::from(scale))).add(&self.beta)
+                    }
+                    None => {
+                        xs.multiply(&Tensor::from(scale)).add(&self.beta)
+                    }
+                }
+            }
+            None => {
+                match &self.gamma {
+                    Some(gamma) => {
+                        xs.multiply(gamma).add(&self.beta)
+                    }
+                    None => {
+                        xs.add(&self.beta)
+                    }
+                }
+            }
+        }
+    }
+    
 }
 
-fn resnet(p: &nn::Path) -> FuncT<'static> {
-    let conv = conv2d(p / "convpre", 4, FEATURES, 1, 0, 1);
-    let blocks = basic_layer(p / "layer", 4);
-    let p_head = policy_head(p / "phead");
-    let v_head = value_head(p / "vhead");
-    nn::func_t(move |xs, train| {
-        let ys = xs.apply(&conv).apply_t(&blocks, train);
-        Tensor::concat(&[ys.apply_t(&p_head, train), ys.apply_t(&v_head, train)], 1)
-    })
+#[derive(Debug)]
+struct GPool {
+
 }
+
+impl Module for GPool {
+    fn forward(&self, xs: &Tensor) -> Tensor {
+        let layer_mean = xs.mean_dim([2, 3].as_slice(), true, Kind::Float);
+        //(layer_max,_argmax) = torch.max(x.view(x.shape[0],x.shape[1],-1).to(torch.float32), dim=2)
+        let (mut layer_max, _) = (xs.view((xs.size()[0], xs.size()[1], -1)).to_kind(Kind::Float)).max_dim(2, true);
+        layer_max = layer_max.view((xs.size()[0], xs.size()[1], 1, 1));
+
+        let out2 = layer_mean.multiply(&Tensor::from(0.5));
+        let out1 = layer_mean;
+        let out3 = layer_max;
+
+        Tensor::cat(&[out1, out2, out3], 1)
+    }
+}
+
+#[derive(Debug)]
+struct ValueHeadGPool {
+
+}
+
+impl Module for ValueHeadGPool {
+    fn forward(&self, xs: &Tensor) -> Tensor {
+        let layer_mean = xs.mean_dim([2, 3].as_slice(), true, Kind::Float);
+
+        let out2 = layer_mean.multiply(&Tensor::from(0.5));
+        let out3 = layer_mean.multiply(&Tensor::from(0.24));
+        let out1 = layer_mean;
+
+        Tensor::cat(&[out1, out2, out3], 1)
+    }
+}
+
+
+#[derive(Debug)]
+struct ConvAndGPool {
+    conv1r: Conv2D,
+    conv1g: Conv2D,
+    normg: NormFixup,
+    gpool: GPool,
+    linearg: nn::Linear,
+}
+
+impl ConvAndGPool {
+    fn new(p: nn::Path, c_in: i64, c_out: i64, c_gpool: i64) -> ConvAndGPool {
+        let conv1r = conv2d(&p / "conv1r", c_in, c_out, 3, 1, 1);
+        let conv1g = conv2d(&p / "conv1g", c_in, c_gpool, 3, 1, 1);
+        let normg = NormFixup::new(&p / "normg", c_gpool, false);
+        let gpool = GPool {};
+        let linearg = nn::linear(&p / "linearg", c_gpool * 3, c_out, Default::default());
+        ConvAndGPool {
+            conv1r,
+            conv1g,
+            normg,
+            gpool,
+            linearg,
+        }
+    }
+}
+
+impl ModuleT for ConvAndGPool {
+    fn forward_t(&self, xs: &Tensor, train: bool) -> Tensor {
+        let xr = xs.apply(&self.conv1r);
+        let xg = xs.apply(&self.conv1g);
+        let xg = xg.apply_t(&self.normg, train);
+        let xg = xg.relu();
+        let xg = xg.apply(&self.gpool).squeeze_dim(-1).squeeze_dim(-1);
+        let xg = xg.apply(&self.linearg).unsqueeze(-1).unsqueeze(-1);
+        xr.add(&xg)
+    }
+}
+
+impl QuoriModuleT for ConvAndGPool {
+    fn init_weights(&mut self, scale: f64, norm_scale: Option<f64>) {
+        let r_scale = 0.8_f64;
+        let g_scale = 0.6_f64;
+        init_weights(&mut self.conv1r.ws, (2_f64).sqrt(), scale * r_scale, None);
+        init_weights(&mut self.conv1g.ws, (2_f64).sqrt(), scale.sqrt() * g_scale.sqrt(), None);
+        init_weights(&mut self.linearg.ws, (2_f64).sqrt(), scale.sqrt() * g_scale.sqrt(), None);
+    }
+    
+}
+
+#[derive(Debug)]
+struct NormActConv {
+    norm: NormFixup,
+    conv: Option<Conv2D>,
+    convpool: Option<ConvAndGPool>,
+}
+
+impl NormActConv {
+    fn new(p: nn::Path, c_in: i64, c_out: i64, c_gpool: Option<i64>, ksize: i64, use_gamma: bool) -> NormActConv {
+        let norm = NormFixup::new(&p / "norm", c_in, use_gamma);
+        let conv;
+        let convpool;
+        match c_gpool {
+            Some(c_gpool) => {
+                conv = None;
+                convpool = Some(ConvAndGPool::new(&p / "convpool", c_in, c_out, c_gpool));
+            }
+            None => {
+                conv = Some(conv2d(&p / "conv", c_in, c_out, ksize, 1, 1));
+                convpool = None;
+            }
+        }
+        NormActConv {
+            norm,
+            conv,
+            convpool,
+        }
+    }
+}
+
+impl ModuleT for NormActConv {
+    fn forward_t(&self, xs: &Tensor, train: bool) -> Tensor {
+        let xs = xs.apply_t(&self.norm, train);
+        let xs = xs.relu();
+        return match &self.convpool {
+            Some(convpool) => {
+                xs.apply_t(convpool, train)
+            }
+            None => {
+                xs.apply(self.conv.as_ref().unwrap())
+            }
+        }
+    }
+}
+
+impl QuoriModuleT for NormActConv {
+    fn init_weights(&mut self, scale: f64, norm_scale: Option<f64>) {
+        self.norm.set_scale(norm_scale);
+        match &mut self.convpool {
+            Some(convpool) => {
+                convpool.init_weights(scale, norm_scale);
+            }
+            None => {
+                init_weights(&mut self.conv.as_mut().unwrap().ws, (2_f64).sqrt(), scale, None);
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+struct ResBlock {
+    normactconv1: NormActConv,
+    normactconv2: NormActConv,
+}
+
+impl ResBlock {
+    fn new(p: nn::Path, c_main: i64, c_mid: i64, c_gpool: Option<i64>) -> ResBlock {
+        let normactconv1 = NormActConv::new(&p / "normactconv1", c_main, c_mid - c_gpool.unwrap_or(0), c_gpool, 3, false);
+        let normactconv2 = NormActConv::new(&p / "normactconv2", c_mid - c_gpool.unwrap_or(0), c_main, None, 3, true);
+        ResBlock {
+            normactconv1,
+            normactconv2,
+        }
+    }
+}
+
+impl ModuleT for ResBlock {
+    fn forward_t(&self, xs: &Tensor, train: bool) -> Tensor {
+        let ys = xs.apply_t(&self.normactconv1, train);
+        ys.apply_t(&self.normactconv2, train).add(xs)
+    }
+}
+
+impl QuoriModuleT for ResBlock {
+    fn init_weights(&mut self, scale: f64, norm_scale: Option<f64>) {
+        self.normactconv1.init_weights(scale, None);
+        self.normactconv2.init_weights(0.0, None);
+    }
+}
+
+#[derive(Debug)]
+struct PolicyHead {
+    conv1p: Conv2D,
+    conv1g: Conv2D,
+    biasg: Bias,
+    gpool: GPool,
+    linear_g: nn::Linear,
+    bias2: Bias,
+    linear_p: nn::Linear,
+}
+
+impl PolicyHead {
+    fn new(p: nn::Path, c_in: i64, c_p1: i64, c_g1: i64) -> PolicyHead {
+        let conv1p = conv2d(&p / "conv1p", c_in, c_p1, 1, 0, 1);
+        let conv1g = conv2d(&p / "conv1g", c_in, c_g1, 1, 0, 1);
+        
+        let biasg = Bias::new(&p / "biasg", c_g1);
+        let gpool = GPool {};
+
+        let linear_g = nn::linear(&p / "linearg", c_g1 * 3, c_p1, Default::default());
+
+        let bias2 = Bias::new(&p / "biasg2", c_p1);
+        let linear_p = nn::linear(&p / "linearp", c_p1 * 17 * 17, 132 * 2, Default::default());
+        
+        PolicyHead {
+            conv1p,
+            conv1g,
+            biasg,
+            gpool,
+            linear_g,
+            bias2,
+            linear_p,
+        }
+    }
+}
+
+impl ModuleT for PolicyHead {
+    fn forward_t(&self, xs: &Tensor, train: bool) -> Tensor {
+        let xp = xs.apply(&self.conv1p);
+        let xg = xs.apply(&self.conv1g);
+        let xg = xg.apply_t(&self.biasg, train);
+        let xg = xg.relu();
+        let xg = xg.apply(&self.gpool).squeeze_dim(-1).squeeze_dim(-1);
+        let xg = xg.apply(&self.linear_g).unsqueeze(-1).unsqueeze(-1);
+        let x = xp.add(&xg);
+        let x = x.apply_t(&self.bias2, train);
+        let x = x.relu();
+        let x = x.view((-1, 17 * 17 * 32));
+        let x = x.apply(&self.linear_p);
+        let x1 = x.slice(1, 0, 132, 1);
+        let x2 = x.slice(1, 132, 264, 1);
+        Tensor::cat(&[x1.log_softmax(1, tch::Kind::Float), x2.log_softmax(1, tch::Kind::Float)], 1)
+    }
+}
+
+impl QuoriModuleT for PolicyHead {
+    fn init_weights(&mut self, scale: f64, norm_scale: Option<f64>) {
+        let p_scale = 0.8_f64;
+        let g_scale = 0.6_f64;
+        let scale_output = 0.3_f64;
+        init_weights(&mut self.conv1p.ws, (2_f64).sqrt(), p_scale, None);
+        init_weights(&mut self.conv1g.ws, (2_f64).sqrt(), 1.0, None);
+        init_weights(&mut self.linear_g.ws, (2_f64).sqrt(), g_scale, None);
+        init_weights(&mut self.linear_p.ws, 1.0, scale_output, None);
+    }
+}
+
+#[derive(Debug)]
+struct ValueHead {
+    conv1: Conv2D,
+    bias1: Bias,
+    gpool: GPool,
+    linear2: nn::Linear,
+    linear_v: nn::Linear,
+}
+
+impl ValueHead {
+    fn new(p: nn::Path, c_in: i64, c_v1: i64, c_v2: i64) -> ValueHead {
+        let conv1 = conv2d(&p / "conv1", c_in, c_v1, 1, 0, 1);
+        let bias1 = Bias::new(&p / "bias1", c_v1);
+        let gpool = GPool {};
+        let mut config = LinearConfig::default();
+        config.bias = true;
+        let linear2 = nn::linear(&p / "linear2", c_v1 * 3, c_v2, config);
+        let linear_v = nn::linear(&p / "linearv", c_v2, 1, config);
+        ValueHead {
+            conv1,
+            bias1,
+            gpool,
+            linear2,
+            linear_v,
+        }
+    }
+}
+
+impl ModuleT for ValueHead {
+    fn forward_t(&self, xs: &Tensor, train: bool) -> Tensor {
+        let x = xs.apply(&self.conv1);
+        let x = x.apply_t(&self.bias1, train);
+        let x = x.relu();
+        let x = x.apply(&self.gpool).squeeze_dim(-1).squeeze_dim(-1);
+        let x = x.apply(&self.linear2).relu();
+        let x = x.apply(&self.linear_v).tanh();
+        x
+    }
+}
+
+impl QuoriModuleT for ValueHead {
+    fn init_weights(&mut self, scale: f64, norm_scale: Option<f64>) {
+        let bias_scale = 0.2_f64;
+        init_weights(&mut self.conv1.ws, (2_f64).sqrt(), 1.0, None);
+        init_weights(&mut self.linear2.ws, (2_f64).sqrt(), 1.0, None);
+        init_weights(self.linear2.bs.as_mut().unwrap(), (2_f64).sqrt(), bias_scale, Some(&self.linear2.ws));
+
+        init_weights(&mut self.linear_v.ws, 1.0, 1.0, None);
+        init_weights(self.linear_v.bs.as_mut().unwrap(), 1.0, bias_scale, Some(&self.linear_v.ws));
+    }
+}
+
+pub struct ResNetT {
+    conv: Conv2D,
+    blocks: Vec<ResBlock>,
+    norm_trunkfinal: NormFixup,
+    policy_head: PolicyHead,
+    value_head: ValueHead,
+}
+
+impl ResNetT {
+
+    pub fn new(p: nn::Path) -> ResNetT {
+        let conv = conv2d(p / "convpre", 9, FEATURES, 3, 1, 1);
+        let mut blocks = vec![];
+        for i in 0..4 {
+            blocks.push(ResBlock::new(&p / format!("block{}", i + 1), FEATURES, FEATURES, None));
+        }
+        blocks.push(ResBlock::new(&p / "block5", FEATURES, FEATURES, Some(32)));
+        for i in 0..2 {
+            blocks.push(ResBlock::new(&p / format!("block{}", i + 6), FEATURES, FEATURES, None));
+        }
+        blocks.push(ResBlock::new(&p / "block8", FEATURES, FEATURES, Some(32)));
+        for i in 0..2 {
+            blocks.push(ResBlock::new(&p / format!("block{}", i + 9), FEATURES, FEATURES, None));
+        }
+        let norm_trunkfinal = NormFixup::new(&p / "norm_trunkfinal", FEATURES, false);
+
+        let policy_head = PolicyHead::new(&p / "policy_head", FEATURES, 32, 32);
+        let value_head = ValueHead::new(&p / "value_head", FEATURES, 32, 80);
+        ResNetT {
+            conv,
+            blocks,
+            norm_trunkfinal,
+            policy_head,
+            value_head,
+        }
+    }
+
+    pub fn forward_t(&self, xs: &Tensor, train: bool) -> (Tensor, Tensor, Tensor) {
+        let mut xs = xs.apply(&self.conv).relu();
+        for block in &self.blocks {
+            xs = xs.apply_t(block, train);
+        }
+        let xs = xs.apply_t(&self.norm_trunkfinal, train);
+        let xs = xs.relu();
+        let p = xs.apply_t(&self.policy_head, train);
+        let v = xs.apply_t(&self.value_head, train);
+        (p.slice(1, 0, 132, 1), p.slice(1, 132, 264, 1), v)
+    }
+}
+
 
 pub(crate) struct Net {
-    net: ResNetT<'static>,
+    net: ResNetT,
     vs: VarStore,
 }
 
 impl Net {
     pub fn new(path: Option<&str>) -> Net {
         let mut vs = VarStore::new(tch::Device::Cuda(0));
-        let resnet = resnet1(&vs.root());
+        let resnet = ResNetT::new(vs.root() / "resnet");
         match path {
             Some(p) => {
                 println!("loaded {}", p);
@@ -183,7 +513,7 @@ impl Net {
         let tensor = tch::Tensor::from_slice(state.as_slice())
             .to_device(Device::Cuda(0))
             .reshape(&[1, 9, 17, 17]);
-        let (p_tensor, v_tensor) = self.net.forward_t(&tensor, false);
+        let (p_tensor, _, v_tensor) = self.net.forward_t(&tensor, false);
         let v_loss = v_tensor.mse_loss(
             &Tensor::from(win).to_device(Device::Cuda(0)),
             tch::Reduction::Mean,
@@ -244,7 +574,7 @@ impl Net {
         //let vc: Vec<f32> = tensor.abs().into();
         //let ar3 = Array3::from_shape_vec((7, 9, 9), vc);
         //println!("{:?}", ar3);
-        let (mut p_tensor, v_tensor) = self.net.forward_t(&tensor, train);
+        let (mut p_tensor, _, v_tensor) = self.net.forward_t(&tensor, train);
         //p_tensor = rot90_action(p_tensor, 0, flip);
         //p_tensor = p_tensor.reshape(&[81]);
         let (p, v): (&Vec<f32>, f32) = (
@@ -315,7 +645,7 @@ impl NetTrain {
         let state_tensor = Tensor::from_slice(state_batch.as_slice())
             .reshape(&[BATCH_SIZE.try_into().unwrap(), 9, 17, 17])
             .to_device(Device::Cuda(0));
-        let (p, v) = self.net.write().unwrap().net.forward_t(&state_tensor, true);
+        let (p, _, v) = self.net.write().unwrap().net.forward_t(&state_tensor, true);
         let value_loss = v.mse_loss(
             &Tensor::from_slice(winner_batch.as_slice())
                 .reshape(&[BATCH_SIZE.try_into().unwrap(), 1])
@@ -346,7 +676,7 @@ impl NetTrain {
         let state_tensor = Tensor::from_slice(state_batch.as_slice())
             .reshape(&[BATCH_SIZE.try_into().unwrap(), 9, 17, 17])
             .to_device(Device::Cuda(0));
-        let (p, v) = self.net.read().unwrap().net.forward_t(&state_tensor, false);
+        let (p, _, v) = self.net.read().unwrap().net.forward_t(&state_tensor, false);
         return (p.exp(), v);
     }
     pub async fn save(&self, path: &str, http_address: &str) {
