@@ -515,7 +515,7 @@ impl Net {
     pub fn policy_value_loss(&self, state: Vec<f32>, prob: Vec<f32>, win: f32) -> (f32, f32) {
         let tensor = tch::Tensor::from_slice(state.as_slice())
             .to_device(Device::Cuda(0))
-            .reshape(&[1, 9, 17, 17]);
+            .reshape(&[1, 14, 17, 17]);
         let (p_tensor, _, v_tensor) = self.net.forward_t(&tensor, false);
         let v_loss = v_tensor.mse_loss(
             &Tensor::from(win).to_device(Device::Cuda(0)),
@@ -536,30 +536,23 @@ impl Net {
         train: bool,
     ) -> (Vec<(i32, f32)>, f32) {
         let mut tensor = tch::Tensor::from_slice(state.as_slice().unwrap())
-            .reshape(&[1, 9, 17, 17])
+            .reshape(&[1, 14, 17, 17])
             .to_device(Device::Cuda(0));
-        //let flip = rand::thread_rng().gen_bool(0.5);
-        //if flip {
-        //    tensor = tensor.flip(&[2]);
-        //}
-        //let vc: Vec<f32> = tensor.abs().into();
-        //let ar3 = Array3::from_shape_vec((7, 9, 9), vc);
-        //println!("{:?}", ar3);
+
         let (mut p_tensor, _, v_tensor) = self.net.forward_t(&tensor, train);
-        //p_tensor = rot90_action(p_tensor, 0, flip);
-        //p_tensor = p_tensor.reshape(&[81]);
+
         let (p, v): (&Vec<f32>, f32) = (
             &p_tensor.exp().view([132]).try_into().unwrap(),
             v_tensor.try_into().unwrap(),
         );
-        //Array2::from(p);
+
         let mut probs = vec![];
         for i in 0..132 {
             if available.contains(&i) {
                 probs.push((i as i32, p[i as usize]));
             }
         }
-        //println!("{:?}", probs);
+
         return (probs, v);
     }
 
@@ -567,27 +560,6 @@ impl Net {
         self.vs.save(path).unwrap();
     }
 }
-
-fn rot90_action(tensor: Tensor, rot: i64, flip: bool) -> Tensor {
-    // tensor: 3*8 = 24
-    // rot: 0, 1, 2, 3
-    // flip: true, false
-    let mut tensor = tensor.reshape(&[3, 8]);
-    // in each row, 0 is up, 1 is up-right, 2 is right, etc.
-    // so flip is exchange 0 and 4, 1 and 3, 7 and 5
-    if flip {
-        tensor = tensor.index_select(
-            1,
-            &Tensor::from_slice(&[4, 3, 2, 1, 0, 7, 6, 5])
-                .to_kind(Kind::Int64)
-                .to_device(Device::Cuda(0)),
-        );
-    }
-    // rot90 is actually shift 2 positions to the right
-    tensor = tensor.roll(&[2 * rot], &[1]);
-    tensor.reshape(&[24])
-}
-
 pub(crate) struct NetTrain {
     pub net: Arc<RwLock<Net>>,
     optimizer: Optimizer,
@@ -608,15 +580,16 @@ impl NetTrain {
         &mut self,
         state_batch: Vec<f32>,
         place_probs: Vec<f32>,
+        opp_probs: Vec<f32>,
         winner_batch: Vec<f32>,
         lr: f64,
-    ) -> (f32, f32) {
+    ) -> (f32, f32, f32) {
         self.optimizer.set_lr(lr);
         self.optimizer.zero_grad();
         let state_tensor = Tensor::from_slice(state_batch.as_slice())
-            .reshape(&[BATCH_SIZE.try_into().unwrap(), 9, 17, 17])
+            .reshape(&[BATCH_SIZE.try_into().unwrap(), 14, 17, 17])
             .to_device(Device::Cuda(0));
-        let (p, _, v) = self.net.write().unwrap().net.forward_t(&state_tensor, true);
+        let (p, op, v) = self.net.write().unwrap().net.forward_t(&state_tensor, true);
         let value_loss = v.mse_loss(
             &Tensor::from_slice(winner_batch.as_slice())
                 .reshape(&[BATCH_SIZE.try_into().unwrap(), 1])
@@ -630,13 +603,20 @@ impl NetTrain {
                 .reshape(&[BATCH_SIZE.try_into().unwrap(), 132])
                 .to_device(Device::Cuda(0)),
         );
-        let total = value_loss.add(&policy_loss);
+        let opp_loss = Net::cross_entropy(
+            &op.totype(Kind::Float),
+            &Tensor::from_slice(opp_probs.as_slice())
+                .reshape(&[BATCH_SIZE.try_into().unwrap(), 132])
+                .to_device(Device::Cuda(0)),
+        ).multiply(&Tensor::from(0.15));
+        let total = value_loss.add(&policy_loss).add(&opp_loss);
         total.backward();
         let vloss: f32 = total.try_into().unwrap();
         let ploss: f32 = policy_loss.try_into().unwrap();
-        let vloss = vloss - ploss;
+        let oloss: f32 = opp_loss.try_into().unwrap();
+        let vloss = vloss - ploss - oloss;
         self.optimizer.step();
-        (ploss, vloss)
+        (ploss, oloss, vloss)
     }
     pub fn evaluate_batch(
         &self,
@@ -645,7 +625,7 @@ impl NetTrain {
         winner_batch: Vec<f32>,
     ) -> (Tensor, Tensor) {
         let state_tensor = Tensor::from_slice(state_batch.as_slice())
-            .reshape(&[BATCH_SIZE.try_into().unwrap(), 9, 17, 17])
+            .reshape(&[BATCH_SIZE.try_into().unwrap(), 14, 17, 17])
             .to_device(Device::Cuda(0));
         let (p, _, v) = self.net.read().unwrap().net.forward_t(&state_tensor, false);
         return (p.exp(), v);
