@@ -519,10 +519,10 @@ impl Net {
     pub fn cross_entropy(input: &Tensor, target: &Tensor) -> Tensor {
         let size = input.size()[0];
         // println!("size: {:?}", input.size());
-        let input = input.view([size * 132]);
+        let input = input.reshape([size * 132]);
         // let v: Vec<f32> = input.view([size*81]).into();
         // println!("{:?}", v);
-        let target = target.view([size * 132]);
+        let target = target.reshape([size * 132]);
         -input.dot(&target) / size
     }
 
