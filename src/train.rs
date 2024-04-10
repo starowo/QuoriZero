@@ -272,18 +272,9 @@ impl TrainPipeline {
 
     async fn train(&mut self) {
         self.net.save("latest.model", format!("{}/model", self.http_address).as_str()).await;
-        let mut batch: usize = 0;
+        let mut batch: usize = 41;
         loop {
             //let len = self.collect_data(3, max(10, batch / 10), batch);
-
-            let len = self.collect_data(8, 99999, batch);
-            println!(
-                "batch {}, episode_len:{}, buffer_len:{}",
-                batch,
-                len,
-                self.data_buffer.len()
-            );
-            self.send_data_to_server().await;
             self.get_data_from_server().await;
             if self.data_buffer.len() >= BATCH_SIZE * 10 {
                 self.lr = if batch < 50 {0.01} else if batch < 100 {0.03} else if batch < 500 {0.03} else {0.003};
@@ -301,7 +292,17 @@ impl TrainPipeline {
                         }
                     }
                 }
+                continue;
             }
+            let len = self.collect_data(8, 99999, batch);
+            println!(
+                "batch {}, episode_len:{}, buffer_len:{}",
+                batch,
+                len,
+                self.data_buffer.len()
+            );
+            self.send_data_to_server().await;
+            
         }
     }
 
