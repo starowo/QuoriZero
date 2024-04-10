@@ -329,7 +329,7 @@ impl TrainPipeline {
         }
         let contents = content.split("\n");
         for content in contents {
-            self.data_buffer.extend::<Vec<SingleData>>(serde_json::from_str(content).unwrap());
+            self.data_buffer.push(serde_json::from_str(content).unwrap());
         }
     }
 
