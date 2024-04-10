@@ -283,6 +283,7 @@ impl TrainPipeline {
                 len,
                 self.data_buffer.len()
             );
+            self.send_data_to_server().await;
             self.get_data_from_server().await;
             if self.data_buffer.len() >= BATCH_SIZE * 10 {
                 self.lr = if batch < 5 {0.02} else if batch < 100 {0.005} else if batch < 500 {0.002} else {0.0002};
@@ -312,6 +313,7 @@ impl TrainPipeline {
             .send()
             .await
             .unwrap();
+        self.data_buffer.clear();
     }
 
     async fn get_data_from_server(&mut self) {
