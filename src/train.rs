@@ -845,20 +845,7 @@ fn flipud_planes(array: &Array3<f32>) -> Array3<f32> {
     for i in 0..m {
         let plane = array.slice(s![i, .., ..]).to_owned(); // Convert borrowed view to owned array
         let rotated_plane = flipud(&plane.into_shape([n, p]).unwrap()); // Pass a 2-dimensional array slice
-                                                                        /*
-                                                                        // swap 1 and 2, 3 and 4
-                                                                        if i == 1 {
-                                                                            result.slice_mut(s![2, .., ..]).assign(&rotated_plane);
-                                                                        } else if i == 2 {
-                                                                            result.slice_mut(s![1, .., ..]).assign(&rotated_plane);
-                                                                        } else if i == 3 {
-                                                                            result.slice_mut(s![4, .., ..]).assign(&rotated_plane);
-                                                                        } else if i == 4 {
-                                                                            result.slice_mut(s![3, .., ..]).assign(&rotated_plane);
-                                                                        } else {
-                                                                            result.slice_mut(s![i, .., ..]).assign(&rotated_plane);
-                                                                        }
-                                                                         */
+
         result.slice_mut(s![i, .., ..]).assign(&rotated_plane);
     }
 
@@ -875,12 +862,12 @@ fn fliplr_planes(array: &Array3<f32>) -> Array3<f32> {
     let (m, n, p) = array.dim();
     let mut result = Array::zeros((m, n, p));
 
-    for i in 0..5 {
+    for i in 0..12 {
         let plane = array.slice(s![i, .., ..]).to_owned(); // Convert borrowed view to owned array
         let rotated_plane = fliplr(&plane.into_shape([n, p]).unwrap()); // Pass a 2-dimensional array slice
         result.slice_mut(s![i, .., ..]).assign(&rotated_plane);
     }
-    for i in 5..m {
+    for i in 12..m {
         let plane = array.slice(s![i, .., ..]).to_owned(); // Convert borrowed view to owned array
         result.slice_mut(s![i, .., ..]).assign(&plane);
     }
