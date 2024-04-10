@@ -435,15 +435,23 @@ impl Board {
                 return;
             }
         }
+        self.last_move_3 = self.last_move_2.clone();
+        self.last_move_2 = self.last_move.clone();
+        self.last_move = [[0; 17]; 17];
         if d < 8*8*2 {
             let (x, y, horizontal) = Board::move_to_wall(d as usize);
             self.state[x][y] = self.status as u8;
+            self.last_move[x][y] = 1;
             if horizontal {
                 self.state[x + 1][y] = self.status as u8;
                 self.state[x - 1][y] = self.status as u8;
+                self.last_move[x + 1][y] = 1;
+                self.last_move[x - 1][y] = 1;
             } else {
                 self.state[x][y + 1] = self.status as u8;
                 self.state[x][y - 1] = self.status as u8;
+                self.last_move[x][y + 1] = 1;
+                self.last_move[x][y - 1] = 1;
             }
             self.walls[self.status as usize - 1] -= 1;
         } else {
@@ -453,6 +461,7 @@ impl Board {
             if self.tiles[0] == self.tiles[1] {
                 self.status = 3 - self.status;
             }
+            self.last_move[d as usize % 9 * 2][d as usize / 9 * 2] = 1;
         }
         self.status = 3 - self.status;
 
