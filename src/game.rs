@@ -6,40 +6,43 @@ use ndarray::{Array, Array3};
 
 #[derive(Clone)]
 pub(crate) struct Board {
-    pub tx: Option<std::sync::mpsc::Sender<websocket::OwnedMessage>>,
     pub status: u16,
     pub start: u16,
     pub available: Vec<u16>,
     pub tiles: [u16; 2],
     pub walls: [u16; 2],
-    pub shortest_paths: [Vec<u16>; 2],
+    pub reachable_pos: [Vec<u16>; 2],
     pub last_pos: u16,
     // board: 17*17
     pub state: [[u8; 17]; 17],
+    pub last_move: [[u8; 17]; 17],
+    pub last_move_2: [[u8; 17]; 17],
+    pub last_move_3: [[u8; 17]; 17],
 }
 
 impl Board {
     pub fn new(
-        tx: Option<std::sync::mpsc::Sender<websocket::OwnedMessage>>,
     ) -> Board {
         let state = [[0; 17]; 17];
         let tiles = [4*9, 4*9+8];
         let walls = [10, 10];
         Board {
-            tx,
             status: 0,
             start: 0,
             available: Vec::new(),
             tiles,
             walls,
-            shortest_paths: [Vec::new(), Vec::new()],
+            reachable_pos: [Vec::new(), Vec::new()],
             last_pos: 0,
             state,
+            last_move: [[0; 17]; 17],
+            last_move_2: [[0; 17]; 17],
+            last_move_3: [[0; 17]; 17],
         }
     }
 
     pub fn current_state(&self) -> Array3<f32> {
-        let mut square_state = Array::zeros((9, 17, 17));
+        let mut square_state = Array::zeros((14, 17, 17));
         for i in 0..17 {
             for j in 0..17 {
                 if self.state[i][j] == self.status as u8 {
@@ -49,47 +52,55 @@ impl Board {
                     square_state[[0, i, j]] = 1.0;
                     square_state[[2, i, j]] = 1.0;
                 }
+                square_state[[7, i, j]] = self.last_move[i][j] as f32;
+                square_state[[8, i, j]] = self.last_move_2[i][j] as f32;
+                square_state[[9, i, j]] = self.last_move_3[i][j] as f32;
             }
         }
+
         for i in 0..2 {
             let x = self.tiles[i] as usize % 9 * 2;
             let y = self.tiles[i] as usize / 9 * 2;
             let z = if self.status as usize == i+1 {3} else {4};
+            let z2 = if self.status as usize == i+1 {5} else {6};
+            square_state[[z, x, y]] = 1.0;
+            for j in 0..9 {
+                square_state[[z2, x, j * 2]] = 1.0;
+            }
+        }
+
+        for pos in &self.reachable_pos[0] {
+            let x = *pos as usize % 9 * 2;
+            let y = *pos as usize / 9 * 2;
+            let z = if self.status == 1 {10} else {11};
             square_state[[z, x, y]] = 1.0;
         }
-        let path1 = self.shortest_paths[0].clone();
-        let path2 = self.shortest_paths[1].clone();
 
-        for i in 0..path1.len() {
-            let x = path1[i] as usize % 9 * 2;
-            let y = path1[i] as usize / 9 * 2;
-            square_state[[if self.status == 1 {5} else {6}, x, y]] = 1.0;
-        }
-
-        for i in 0..path2.len() {
-            let x = path2[i] as usize % 9 * 2;
-            let y = path2[i] as usize / 9 * 2;
-            square_state[[if self.status == 2 {5} else {6}, x, y]] = 1.0;
+        for pos in &self.reachable_pos[1] {
+            let x = *pos as usize % 9 * 2;
+            let y = *pos as usize / 9 * 2;
+            let z = if self.status == 2 {10} else {11};
+            square_state[[z, x, y]] = 1.0;
         }
 
         for i in 0..self.walls[0] as usize {
             for j in 0..8 {
-                square_state[[7, j, i]] = 1.0;
+                square_state[[12, j, i]] = 1.0;
             }
         }
         for i in 0..self.walls[1] as usize {
             for j in 9..17 {
-                square_state[[7, j, i]] = 1.0;
+                square_state[[12, j, i]] = 1.0;
             }
         }
         
         if self.status == 1 {
-            for i in 0..17 {
-                square_state[[8, 16, i]] = 1.0;
+            for i in 0..9 {
+                square_state[[13, 16, i * 2]] = 1.0;
             }
         } else {
-            for i in 0..17 {
-                square_state[[8, 0, i]] = 1.0;
+            for i in 0..9 {
+                square_state[[13, 0, i * 2]] = 1.0;
             }
         }
         square_state
@@ -117,19 +128,16 @@ impl Board {
         self.status = start_player;
         self.start = self.status;
         self.check_available();
-        if self.tx.is_some() {
-            let _ = self.tx.as_ref().unwrap().send(websocket::OwnedMessage::Text(self.get_state_string()));
-        }
     }
     fn check_available(&mut self) {
         self.available.clear();
         let tile = self.tiles[self.status as usize - 1];
         let opp_tile = self.tiles[2 - self.status as usize];
         let moves = self.available_positions_a(tile, opp_tile, true, true, true, true, true);
-        let shortest_path = self.bfs(tile, opp_tile, if self.status == 1 {8} else {0});
-        let opp_shortest_path = self.bfs(opp_tile, tile, if self.status == 1 {0} else {8});
-        self.shortest_paths[2 - self.status as usize] = opp_shortest_path.clone();
-        self.shortest_paths[self.status as usize - 1] = shortest_path.clone();
+        let reachable = self.reachable_locations(tile, tile);
+        let reachable_opp = self.reachable_locations(opp_tile, opp_tile);
+        self.reachable_pos[2 - self.status as usize] = reachable_opp;
+        self.reachable_pos[self.status as usize - 1] = reachable;
         if tile == opp_tile {
             for i in 128..132 {
                 let location = self.move_to_location(i);
@@ -140,6 +148,7 @@ impl Board {
             return;
         }
         if self.walls[0] == 0 && self.walls[1] == 0 {
+            let shortest_path = self.bfs(tile, opp_tile, if self.status == 1 {8} else {0});
             for i in 128..132 {
                 let location = self.move_to_location(i);
                 if moves.contains(&location) && shortest_path.contains(&location) {
@@ -426,15 +435,23 @@ impl Board {
                 return;
             }
         }
+        self.last_move_3 = self.last_move_2.clone();
+        self.last_move_2 = self.last_move.clone();
+        self.last_move = [[0; 17]; 17];
         if d < 8*8*2 {
             let (x, y, horizontal) = Board::move_to_wall(d as usize);
             self.state[x][y] = self.status as u8;
+            self.last_move[x][y] = 1;
             if horizontal {
                 self.state[x + 1][y] = self.status as u8;
                 self.state[x - 1][y] = self.status as u8;
+                self.last_move[x + 1][y] = 1;
+                self.last_move[x - 1][y] = 1;
             } else {
                 self.state[x][y + 1] = self.status as u8;
                 self.state[x][y - 1] = self.status as u8;
+                self.last_move[x][y + 1] = 1;
+                self.last_move[x][y - 1] = 1;
             }
             self.walls[self.status as usize - 1] -= 1;
         } else {
@@ -444,11 +461,10 @@ impl Board {
             if self.tiles[0] == self.tiles[1] {
                 self.status = 3 - self.status;
             }
+            self.last_move[d as usize % 9 * 2][d as usize / 9 * 2] = 1;
         }
         self.status = 3 - self.status;
-        if self.tx.is_some() && safe {
-            let _ = self.tx.as_ref().unwrap().send(websocket::OwnedMessage::Text(self.get_state_string()));
-        }
+
         if calc_available {
             self.check_available();
         }
@@ -560,6 +576,29 @@ impl Board {
             }
         }
         vec![]
+    }
+
+    fn reachable_locations(&self, tile: u16, opp_tile: u16) -> Vec<u16> {
+        let mut reachable = Vec::new();
+        let mut queue = Vec::new();
+        let mut visited = HashMap::new();
+        queue.push(tile);
+        visited.insert(tile, vec![]);
+        while queue.len() > 0 {
+            let current = queue.remove(0);
+            let path = visited.get(&current).unwrap().clone();
+            let next = self.available_positions_a(current, opp_tile, true, true, true, true, true);
+            for n in next {
+                if !visited.contains_key(&n) {
+                    let mut path_n = path.clone();
+                    path_n.push(n);
+                    visited.insert(n, path_n);
+                    queue.push(n);
+                    reachable.push(n);
+                }
+            }
+        }
+        reachable
     }
 
     fn check_win(&self) -> (bool, i8) {

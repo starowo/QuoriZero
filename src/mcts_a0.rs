@@ -172,6 +172,9 @@ fn visit(parent: &TreeNode, node: &TreeNode, c_puct: f32) -> f32 {
     //let binding = node.parent.clone().unwrap();
     //let parent = binding.read().unwrap();
     let forced_playout = (2. * node.p * parent.n_visits as f32).sqrt().round() as i32;
+    if node.n_visits < forced_playout && parent.parent.is_none() {
+        return 10000.0;
+    }
     c_puct * node.p * (parent.n_visits as f32).sqrt() / (1.0 + node.n_visits as f32)
 }
 fn select(node: &TreeNode, c_puct: f32) -> (i32, Arc<RwLock<TreeNode>>) {
@@ -313,11 +316,10 @@ pub(crate) struct MCTS {
     nets: Vec<Arc<RwLock<Net>>>,
     root: Arc<RwLock<TreeNode>>,
     c_puct: f32,
-    n_playout: usize,
 }
 
 impl MCTS {
-    fn new(net: Arc<RwLock<Net>>, c_puct: f32, n_playout: usize, num_nets: usize) -> MCTS {
+    fn new(net: Arc<RwLock<Net>>, c_puct: f32, num_nets: usize) -> MCTS {
         let mut nets = vec![net];
         for _ in 1..num_nets {
             let cloned_net = NetTrain::new(if std::path::Path::new("latest.model").exists() {
@@ -331,7 +333,6 @@ impl MCTS {
             nets,
             root: Arc::new(TreeNode::new(None, 1.0, false).into()),
             c_puct,
-            n_playout,
         };
         n
     }
@@ -454,12 +455,12 @@ impl MCTS {
         //node.update_recursive(-leaf_value);
     }
     */
-    fn get_move_probs(&self, state: &mut Board, temp: f32, selfplay: bool, thread: usize) -> (Vec<i32>, Vec<f32>, Vec<f32>) {
+    fn get_move_probs(&self, state: &mut Board, temp: f32, selfplay: bool, n_playout: usize, thread: usize) -> (Vec<i32>, Vec<f32>, Vec<f32>) {
         let mut threads = vec![];
         let n_playout = if state.walls[0] == 0 && state.walls[1] == 0 && state.available.len() == 1 {
             5
         } else {
-            self.n_playout
+            n_playout
         };
         let expanding: Arc<RwLock<Vec<Uuid>>> = Arc::new(RwLock::new(vec![]));
         //let time = std::time::SystemTime::now();
@@ -502,13 +503,23 @@ impl MCTS {
         }
         //let tm = std::time::SystemTime::now().duration_since(time).unwrap().as_millis();
         //println!("{}v/s", n_playout as f32 / tm as f32*1000.0);
+        let visits_most = self.root.read().unwrap().children.iter()
+            .map(|(_, node)| node.read().unwrap().n_visits)
+            .max()
+            .unwrap();
         let root = self.root.read().unwrap();
         let act_visits = root
             .children
             .iter()
             .map(|(&action, node)| {
-                let visits = node.read().unwrap().n_visits;
-                
+                let mut visits = node.read().unwrap().n_visits;
+                if visits < visits_most {
+                    let forced_playout = (2. * node.read().unwrap().p * root.n_visits as f32).sqrt();
+                    visits -= forced_playout.round() as i32;
+                    if visits < 0 {
+                        visits = 0;
+                    }
+                }
                 (action, visits)
             })    
             .collect::<Vec<_>>();
@@ -594,12 +605,11 @@ impl MCTSPlayer {
     pub fn new(
         net: Arc<RwLock<Net>>,
         c_puct: f32,
-        n_playout: usize,
         is_selfplay: bool,
         num_nets: usize,
     ) -> MCTSPlayer {
         MCTSPlayer {
-            mcts: MCTS::new(net, c_puct, n_playout, num_nets),
+            mcts: MCTS::new(net, c_puct, num_nets),
             is_selfplay,
         }
     }
@@ -609,47 +619,14 @@ impl MCTSPlayer {
         board: &mut Board,
         temp: f32,
         _return_prob: bool,
+        n_playout: usize,
         thread: usize
     ) -> (i32, Vec<f32>) {
         let sensible_moves = &mut board.available;
         // the pi vector returned by MCTS as in the alphaGo Zero paper
         let mut move_probs = vec![0.0; 132];
         if !sensible_moves.is_empty() {
-            let (acts, probs, origin_probs) = self.mcts.get_move_probs(board, temp, self.is_selfplay, thread);
-            /*if !self.is_selfplay && self.mcts.n_playout >= 1000 {
-                loop {
-                    let mut input_1 = String::new();
-                    println!("winrate: {}", -self.mcts.root.read().unwrap().q);
-                    let mut move_probs = vec![0.0; 24];
-                    let mut i = 0;
-                    while i < acts.len() {
-                        move_probs[acts[i] as usize] = origin_probs[i];
-                        i += 1;
-                    }
-                    let mut map = move_probs
-                    .iter()
-                    .enumerate()
-                    .map(|(k, v)| (k, v))
-                    .collect::<Vec<(usize, &f32)>>();
-                    map.sort_by(|(_, b), (_, a)| a.partial_cmp(b).unwrap());
-                    let mut i = 0;
-                    while i < 3 && i < map.len() {
-                        let (move_, value) = map[i];
-                        let (x, y) = (0,0);
-                        let chars = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'];
-                        println!("move: {},{} ({}{}) prob:{}", x, y, chars[x], y+1, value);
-                        i += 1
-                    }
-                    println!("keep searching? y(yes) or other(no)");
-                    std::io::stdin().read_line(&mut input_1)
-                        .expect("Failed to read line");
-                    if input_1.contains("y") {
-                        (acts, probs, origin_probs) = self.mcts.get_move_probs(board, temp, self.is_selfplay, thread);
-                        continue;
-                    }
-                    break;
-                }
-            }*/
+            let (acts, probs, origin_probs) = self.mcts.get_move_probs(board, temp, self.is_selfplay, n_playout, thread);
             let mut i = 0;
             while i < acts.len() {
                 move_probs[acts[i] as usize] = probs[i];
