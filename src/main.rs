@@ -1,6 +1,5 @@
 pub mod net;
 pub mod game;
-pub mod mcts_pure_parallel;
 pub mod train;
 pub mod mcts_a0;
 

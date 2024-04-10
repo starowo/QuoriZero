@@ -6,6 +6,7 @@ use ndarray::{Array, Array3};
 
 #[derive(Clone)]
 pub(crate) struct Board {
+    pub tx: Option<std::sync::mpsc::Sender<websocket::OwnedMessage>>,
     pub status: u16,
     pub start: u16,
     pub available: Vec<u16>,
@@ -22,11 +23,13 @@ pub(crate) struct Board {
 
 impl Board {
     pub fn new(
+        tx: Option<std::sync::mpsc::Sender<websocket::OwnedMessage>>,
     ) -> Board {
         let state = [[0; 17]; 17];
         let tiles = [4*9, 4*9+8];
         let walls = [10, 10];
         Board {
+            tx,
             status: 0,
             start: 0,
             available: Vec::new(),
@@ -128,6 +131,9 @@ impl Board {
         self.status = start_player;
         self.start = self.status;
         self.check_available();
+        if self.tx.is_some() {
+            let _ = self.tx.as_ref().unwrap().send(websocket::OwnedMessage::Text(self.get_state_string()));
+        }
     }
     fn check_available(&mut self) {
         self.available.clear();
@@ -464,7 +470,9 @@ impl Board {
             self.last_move[d as usize % 9 * 2][d as usize / 9 * 2] = 1;
         }
         self.status = 3 - self.status;
-
+        if self.tx.is_some() && safe {
+            let _ = self.tx.as_ref().unwrap().send(websocket::OwnedMessage::Text(self.get_state_string()));
+        }
         if calc_available {
             self.check_available();
         }
