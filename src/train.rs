@@ -272,10 +272,12 @@ impl TrainPipeline {
 
     async fn train(&mut self) {
         self.net.save("latest.model", format!("{}/model", self.http_address).as_str()).await;
-        let mut batch: usize = 209;
+        let mut batch: usize = 282;
         loop {
             //let len = self.collect_data(3, max(10, batch / 10), batch);
-            self.get_data_from_server().await;
+            if (self.get_data_from_server().await) {
+                continue;
+            }
             if self.data_buffer.len() >= BATCH_SIZE * 10 {
                 self.lr = if batch < 200 {0.01} else if batch < 1500 {0.03} else {0.003};
                 self.train_step();
@@ -317,21 +319,30 @@ impl TrainPipeline {
         self.data_buffer.clear();
     }
 
-    async fn get_data_from_server(&mut self) {
+    async fn get_data_from_server(&mut self) -> bool {
         let client = Client::new();
         let res = client.get(&format!("{}/getdata", self.http_address))
             .send()
-            .await
-            .unwrap();
-        let content = res.text().await.unwrap();
-        let content = content.trim();
-        if content == "" {
-            return;
+            .await;
+        match res {
+            Err(_) => {
+                return true;
+            }
+            Ok(res) => {
+                let content = res.text().await.unwrap();
+                let content = content.trim();
+                if content == "" {
+                    return false;
+                }
+                let contents = content.split("\n");
+                for content in contents {
+                    self.data_buffer.push(serde_json::from_str(content).unwrap());
+                }
+                false
+            }
+            
         }
-        let contents = content.split("\n");
-        for content in contents {
-            self.data_buffer.push(serde_json::from_str(content).unwrap());
-        }
+        
     }
 
 }
