@@ -283,7 +283,7 @@ impl TrainPipeline {
                 self.train_step();
                 self.net.save("latest.model", format!("{}/model", self.http_address).as_str()).await;
                 batch += 1;
-                if batch+350 % 200 == 0 {
+                if batch % 200 == 0 {
                     {
                         let wr =
                             weight_comparation(self.net.net.clone(), 0.5, 4.0, 1200);
