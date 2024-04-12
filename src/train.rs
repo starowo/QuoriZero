@@ -272,7 +272,7 @@ impl TrainPipeline {
 
     async fn train(&mut self) {
         self.net.save("latest.model", format!("{}/model", self.http_address).as_str()).await;
-        let mut batch: usize = 282;
+        let mut batch: usize = 350;
         loop {
             //let len = self.collect_data(3, max(10, batch / 10), batch);
             if (self.get_data_from_server().await) {
@@ -283,7 +283,7 @@ impl TrainPipeline {
                 self.train_step();
                 self.net.save("latest.model", format!("{}/model", self.http_address).as_str()).await;
                 batch += 1;
-                if batch % 50 == 0 {
+                if batch+350 % 200 == 0 {
                     {
                         let wr =
                             weight_comparation(self.net.net.clone(), 0.5, 4.0, 1200);
