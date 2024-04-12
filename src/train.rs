@@ -732,11 +732,11 @@ fn get_equi_data(data: Vec<SingleData>) -> Vec<SingleData> {
         let arr = v.get_state().1;
         let opp_arr = v.get_state().2;
         result.push(into_data(
-            (flipud_planes(&v.get_state().0), flipud_actions(&arr), flipud_actions(&opp_arr), v.state.3),
+            (flipud_planes(&v.get_state().0), fliplr_actions(&arr), fliplr_actions(&opp_arr), v.state.3),
             v.weight,
         ));
         result.push(into_data(
-            (fliplr_planes(&v.get_state().0), fliplr_actions(&arr), fliplr_actions(&opp_arr), v.state.3),
+            (fliplr_planes(&v.get_state().0), flipud_actions(&arr), flipud_actions(&opp_arr), v.state.3),
             v.weight,
         ));
         result.push(into_data(
