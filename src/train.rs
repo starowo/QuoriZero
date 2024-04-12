@@ -784,10 +784,10 @@ fn fliplr_actions(actions: &Vec<f32>) -> Vec<f32> {
     }
     for i in 128..132 {
         let mut action = actions[i];
-        if i == 128 {
-            action = actions[130];
-        } else if i == 130 {
-            action = actions[128];
+        if i == 129 {
+            action = actions[131];
+        } else if i == 131 {
+            action = actions[129];
         }
         result[i] = action;
     }
@@ -818,10 +818,10 @@ fn flipud_actions(actions: &Vec<f32>) -> Vec<f32> {
     }
     for i in 128..132 {
         let mut action = actions[i];
-        if i == 129 {
-            action = actions[131];
-        } else if i == 131 {
-            action = actions[129];
+        if i == 128 {
+            action = actions[130];
+        } else if i == 130 {
+            action = actions[128];
         }
         result[i] = action;
     }
