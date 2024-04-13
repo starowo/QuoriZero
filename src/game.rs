@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, result};
 
 use ndarray::{Array, Array3};
 
@@ -12,7 +12,7 @@ pub(crate) struct Board {
     pub available: Vec<u16>,
     pub tiles: [u16; 2],
     pub walls: [u16; 2],
-    pub reachable_pos: [Vec<u16>; 2],
+    pub reachable_pos: [[[u8; 17]; 17]; 2],
     pub last_pos: u16,
     // board: 17*17
     pub state: [[u8; 17]; 17],
@@ -36,6 +36,7 @@ impl Board {
             tiles,
             walls,
             reachable_pos: [Vec::new(), Vec::new()],
+            reachable_pos: [[[0; 17]; 17]; 2],
             last_pos: 0,
             state,
             last_move: [[0; 17]; 17],
@@ -58,6 +59,10 @@ impl Board {
                 square_state[[7, i, j]] = self.last_move[i][j] as f32;
                 square_state[[8, i, j]] = self.last_move_2[i][j] as f32;
                 square_state[[9, i, j]] = self.last_move_3[i][j] as f32;
+                let z1 = if self.status == 1 {10} else {11};
+                let z2 = if self.status == 2 {10} else {11};
+                square_state[[z1, i, j]] = self.reachable_pos[0][i][j] as f32;
+                square_state[[z2, i, j]] = self.reachable_pos[1][i][j] as f32;
             }
         }
 
@@ -70,20 +75,6 @@ impl Board {
             for j in 0..9 {
                 square_state[[z2, x, j * 2]] = 1.0;
             }
-        }
-
-        for pos in &self.reachable_pos[0] {
-            let x = *pos as usize % 9 * 2;
-            let y = *pos as usize / 9 * 2;
-            let z = if self.status == 1 {10} else {11};
-            square_state[[z, x, y]] = 1.0;
-        }
-
-        for pos in &self.reachable_pos[1] {
-            let x = *pos as usize % 9 * 2;
-            let y = *pos as usize / 9 * 2;
-            let z = if self.status == 2 {10} else {11};
-            square_state[[z, x, y]] = 1.0;
         }
 
         for i in 0..self.walls[0] as usize {
@@ -473,6 +464,7 @@ impl Board {
         if self.tx.is_some() && safe {
             let _ = self.tx.as_ref().unwrap().send(websocket::OwnedMessage::Text(self.get_state_string()));
         }
+
         if calc_available {
             self.check_available();
         }
@@ -586,7 +578,8 @@ impl Board {
         vec![]
     }
 
-    fn reachable_locations(&self, tile: u16, opp_tile: u16) -> Vec<u16> {
+    fn reachable_locations(&self, tile: u16, opp_tile: u16) -> [[u8; 17]; 17] {
+        let mut result = [[0; 17]; 17];
         let mut reachable = Vec::new();
         let mut queue = Vec::new();
         let mut visited = HashMap::new();
@@ -597,6 +590,15 @@ impl Board {
             let path = visited.get(&current).unwrap().clone();
             let next = self.available_positions_a(current, opp_tile, true, true, true, true, true);
             for n in next {
+                let current_x = current as usize % 9 * 2;
+                let current_y = current as usize / 9 * 2;
+                let n_x = n as usize % 9 * 2;
+                let n_y = n as usize / 9 * 2;
+                let x = (current_x + n_x) / 2;
+                let y = (current_y + n_y) / 2;
+                result[x][y] = 1;
+                result[n_x][n_y] = 1;
+                result[current_x][current_y] = 1;
                 if !visited.contains_key(&n) {
                     let mut path_n = path.clone();
                     path_n.push(n);
@@ -606,7 +608,7 @@ impl Board {
                 }
             }
         }
-        reachable
+        result
     }
 
     fn check_win(&self) -> (bool, i8) {
