@@ -35,7 +35,6 @@ impl Board {
             available: Vec::new(),
             tiles,
             walls,
-            reachable_pos: [Vec::new(), Vec::new()],
             reachable_pos: [[[0; 17]; 17]; 2],
             last_pos: 0,
             state,
