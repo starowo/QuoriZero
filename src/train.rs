@@ -279,7 +279,7 @@ impl TrainPipeline {
                 continue;
             }
             if self.data_buffer.len() >= BATCH_SIZE * 10 {
-                self.lr = if batch < 200 {0.01} else if batch < 1500 {0.03} else {0.003};
+                self.lr = if batch < 200 {0.01} else if batch < 15000 {0.03} else {0.003};
                 self.train_step();
                 self.net.save("latest.model", format!("{}/model", self.http_address).as_str()).await;
                 batch += 1;
