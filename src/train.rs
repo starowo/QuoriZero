@@ -272,10 +272,10 @@ impl TrainPipeline {
 
     async fn train(&mut self) {
         self.net.save("latest.model", format!("{}/model", self.http_address).as_str()).await;
-        let mut batch: usize = 1533;
+        let mut batch: usize = 2040;
         loop {
             //let len = self.collect_data(3, max(10, batch / 10), batch);
-            if (self.get_data_from_server().await) {
+            if self.get_data_from_server().await {
                 continue;
             }
             if self.data_buffer.len() >= BATCH_SIZE * 10 {
@@ -336,7 +336,16 @@ impl TrainPipeline {
                 }
                 let contents = content.split("\n");
                 for content in contents {
-                    self.data_buffer.push(serde_json::from_str(content).unwrap());
+                    let data = serde_json::from_str(content);
+                    match data {
+                        Ok(data) => {
+                            self.data_buffer.push(data);
+                        }
+                        Err(_) => {
+                            println!("error");
+                            return true;
+                        }
+                    }
                 }
                 false
             }
