@@ -41,7 +41,7 @@ pub fn play(tx: Option<Sender<OwnedMessage>>, rx: Receiver<usize>) {
             4.0,
             3000,
             true,
-            1,
+            2,
             2,
             tx.clone(),
             rx,
