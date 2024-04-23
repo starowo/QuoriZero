@@ -234,7 +234,7 @@ fn weight_comparation(
     let mut threads = vec![];
     //let time = std::time::SystemTime::now();
     let played = Arc::new(AtomicUsize::new(0));
-    let best = Arc::new(RwLock::new(Net::new(Some("latest.model"))));
+    let best = Arc::new(RwLock::new(Net::new(Some("best.model"))));
     for i in 0..1 {
         let a1 = a.clone();
         let net = net.clone();
