@@ -252,7 +252,7 @@ fn weight_comparation(
                     board.init(i % 2 + 1);
                     if true {
                         let mut player = MCTSPlayer::new(n, c_puct, false, 2);
-                        let mut best = MCTSPlayer::new(b, c_puct, false, 2);
+                        let mut best = MCTSPlayer::new(b, c_puct, false, 1);
                         let mut turn = 0;
                         loop {
                             let current = board.current_player();
