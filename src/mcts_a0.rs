@@ -322,8 +322,8 @@ impl MCTS {
     fn new(net: Arc<RwLock<Net>>, c_puct: f32, num_nets: usize) -> MCTS {
         let mut nets = vec![net];
         for _ in 1..num_nets {
-            let cloned_net = NetTrain::new(if std::path::Path::new("latest.model").exists() {
-                Some("latest.model")
+            let cloned_net = NetTrain::new(if std::path::Path::new("best.model").exists() {
+                Some("best.model")
             } else {
                 None
             }).net.clone();
@@ -662,7 +662,7 @@ impl MCTSPlayer {
                     Err(_) => panic!("Error: invalid probability vector"),
                 };
                 let move_ = acts[chosen_idx];
-                //println!("winrate: {}", self.mcts.root.read().unwrap().q);
+                println!("winrate: {}", -self.mcts.root.read().unwrap().q);
                 // reset the root node
                 //self.mcts.update_with_move(-1, false);
                 if _return_prob {

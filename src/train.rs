@@ -36,12 +36,12 @@ pub fn play(tx: Option<Sender<OwnedMessage>>, rx: Receiver<usize>) {
     //humanplay(net::Net::new(Some("latest.model")), 1e-4, 1.5, 800, true, 2, 2, tx.clone(), rx);
     thread::spawn(move || {
         humanplay(
-            net::Net::new(Some("latest.model")),
+            net::Net::new(Some("best.model")),
             1e-4,
             4.0,
-            3000,
+            4000,
             true,
-            2,
+            1,
             2,
             tx.clone(),
             rx,
@@ -56,7 +56,7 @@ pub fn showplay(tx: Option<Sender<OwnedMessage>>) {
             Arc::new(RwLock::new(net::Net::new(Some("latest.model")))),
             1e-4,
             4.0,
-            2400,
+            8000,
             tx.clone(),
         );
     });
