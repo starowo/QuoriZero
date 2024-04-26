@@ -56,7 +56,7 @@ pub fn showplay(tx: Option<Sender<OwnedMessage>>) {
             Arc::new(RwLock::new(net::Net::new(Some("latest.model")))),
             1e-4,
             4.0,
-            8000,
+            1000,
             tx.clone(),
         );
     });
@@ -251,7 +251,7 @@ fn weight_comparation(
                     let b = best.clone();
                     board.init(i % 2 + 1);
                     if true {
-                        let mut player = MCTSPlayer::new(n, c_puct, false, 2);
+                        let mut player = MCTSPlayer::new(n, c_puct, false, 1);
                         let mut best = MCTSPlayer::new(b, c_puct, false, 1);
                         let mut turn = 0;
                         loop {
