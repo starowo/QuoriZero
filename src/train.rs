@@ -53,10 +53,10 @@ pub fn showplay(tx: Option<Sender<OwnedMessage>>) {
     //humanplay(net::Net::new(Some("latest.model")), 1e-4, 1.5, 800, true, 2, 2, tx.clone(), rx);
     thread::spawn(move || {
         weight_comparation(
-            Arc::new(RwLock::new(net::Net::new(Some("latest.model")))),
+            Arc::new(RwLock::new(net::Net::new(Some("best.model")))),
             1e-4,
             4.0,
-            1000,
+            3000,
             tx.clone(),
         );
     });

@@ -171,10 +171,10 @@ fn update_recursive(node: Arc<RwLock<TreeNode>>, leaf_value: f32) {
 fn visit(parent: &TreeNode, node: &TreeNode, c_puct: f32) -> f32 {
     //let binding = node.parent.clone().unwrap();
     //let parent = binding.read().unwrap();
-    let forced_playout = (2. * node.p * parent.n_visits as f32).sqrt().round() as i32;
+    /*let forced_playout = (2. * node.p * parent.n_visits as f32).sqrt().round() as i32;
     if node.n_visits < forced_playout && parent.parent.is_none() {
         return 10000.0;
-    }
+    }*/
     c_puct * node.p * (parent.n_visits as f32).sqrt() / (1.0 + node.n_visits as f32)
 }
 fn select(node: &TreeNode, c_puct: f32) -> (i32, Arc<RwLock<TreeNode>>) {
@@ -513,13 +513,13 @@ impl MCTS {
             .iter()
             .map(|(&action, node)| {
                 let mut visits = node.read().unwrap().n_visits;
-                if visits < visits_most {
+                /*if visits < visits_most {
                     let forced_playout = (2. * node.read().unwrap().p * root.n_visits as f32).sqrt();
                     visits -= forced_playout.round() as i32;
                     if visits < 0 {
                         visits = 0;
                     }
-                }
+                }*/
                 (action, visits)
             })    
             .collect::<Vec<_>>();
